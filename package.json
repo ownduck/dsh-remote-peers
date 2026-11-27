@@ -1,0 +1,81 @@
+{
+  "name": "dsh-remote-peers",
+  "description": "DeepSeek Harness plugin: peer with another DSH over LAN — token-gated gateway plus a remote-sessions panel",
+  "version": "0.3.63",
+  "type": "module",
+  "main": "./index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.mjs",
+    "lib/client.js",
+    "cordis.patch.yml",
+    "vendor/**",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ]
+    }
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ownduck/dsh-remote-peers.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ownduck/dsh-remote-peers/issues"
+  },
+  "homepage": "https://github.com/ownduck/dsh-remote-peers#readme",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "cordis",
+    "plugin",
+    "remote",
+    "lan",
+    "peer"
+  ],
+  "engines": {
+    "dsh": ">=0.2.0",
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    }
+  },
+  "scripts": {
+    "build": "node ./scripts/build.mjs",
+    "probe": "node ./probes/probe-render-page.mjs",
+    "audit": "node ./scripts/audit-dead.mjs src/client.js && node ./scripts/audit-dupe.mjs src/client.js",
+    "prepublishOnly": "node ./scripts/build.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "pdfjs-dist": "6.3.289",
+    "xlsx": "0.20.3"
+  }
+}

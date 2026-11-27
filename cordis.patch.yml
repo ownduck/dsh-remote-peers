@@ -1,0 +1,17 @@
+# 局域网互联 bundle。
+#
+# 只做两件事：把本机能力以「带共享密钥的 HTTP 网关」形式公开到局域网；
+# 由 Client 面把对端网关登记成工作空间。不改 DSH 本体任何源码。
+#
+# listenHost 固定 0.0.0.0：这是插件自己的监听器，不受 DSH webserver 的
+# 通配禁令约束；真正的准入由共享密钥 + allowedCidrs 两道把守。
+# listenPort 0 = 由系统分配，实际端口写进 stateDir/state.json 并在 GUI 显示。
+- insert:
+    - id: remote-peers
+      name: 'dsh-remote-peers'
+      inject: [connection]
+      config:
+        listenHost: 0.0.0.0
+        listenPort: 0
+        stateDir: !!js dshHomePath('remote-peers')
+        allowedCidrs: [127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, ::1/128]
