@@ -355,8 +355,11 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       mono: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12.5 },
       muted: { opacity: 0.65, fontSize: 12.5 },
       button: { border: '1px solid var(--dsh-border, #d8d8d8)', background: 'transparent', borderRadius: 8, padding: '5px 12px', cursor: 'pointer', fontSize: 13 },
-      /* 表格里的「检测」：按最宽的「检测中… + 转圈」定宽，两态同宽，表格列不再被挤得左右弹。 */
-      pingButton: { boxSizing: 'border-box', width: 92, height: 28, padding: 0, border: '1px solid var(--dsh-border, #d8d8d8)', background: 'transparent', borderRadius: 8, cursor: 'pointer', fontSize: 13, textAlign: 'center', whiteSpace: 'nowrap' },
+      /* 列表里的动作钮：四颗同宽同高，文案再长（「检测中」+ 转圈）也塞得下，列宽不再被挤。 */
+      tableAction: { boxSizing: 'border-box', width: 66, height: 28, padding: 0, border: '1px solid var(--dsh-border, #d8d8d8)', background: 'transparent', borderRadius: 8, cursor: 'pointer', fontSize: 13, textAlign: 'center', whiteSpace: 'nowrap' },
+      tableActions: { display: 'inline-flex', alignItems: 'center', gap: 8 },
+      /* 状态列定宽：在线 ↔ 不可用：<原因> 切换时不再让整张表重排；过长原因省略，全文挂 title。 */
+      statusCell: { width: 200, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'middle' },
       primary: { border: '1px solid transparent', background: 'var(--dsh-accent, #1f6feb)', color: '#fff', borderRadius: 8, padding: '5px 12px', cursor: 'pointer', fontSize: 13 },
       /** 按钮内「转圈 + 文案」的横向排布。 */
       buttonBusy: { display: 'inline-flex', alignItems: 'center', gap: 5 },
@@ -2758,34 +2761,33 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
                 h('tbody', null, peers.map((peer) => h('tr', { key: peer.id },
                   h('td', { style: styles.td }, peer.name === undefined || peer.name === '' ? h('span', { style: styles.muted }, '（未命名）') : peer.name),
                   h('td', { style: { ...styles.td, ...styles.mono } }, `${peer.host}:${peer.port}`),
-                  h('td', { style: styles.td },
+                  h('td', { style: { ...styles.td, ...styles.statusCell }, title: ping[peer.id]?.ok === false ? `不可用：${ping[peer.id].reason}` : undefined },
                     ping[peer.id] === undefined
                       ? h('span', { style: styles.muted }, '未检测')
                       : ping[peer.id].ok
                         ? h('span', { style: { color: '#1a7f37' } }, '在线')
                         : h('span', { style: styles.error }, `不可用：${ping[peer.id].reason}`)),
                   h('td', { style: { ...styles.td, whiteSpace: 'nowrap' } },
-                    h('button', {
-                      style: styles.button,
-                      onClick: () => {
-                        setFocusNav(peer.id)
-                        setActivePeer(peer.id)
-                        setSessions([])
-                        void loadSessions(peer.id)
-                      },
-                    }, '进入'),
-                    ' ',
-                    h('button', {
-                      style: busy === `ping:${peer.id}` ? { ...styles.pingButton, cursor: 'default', opacity: 0.7 } : styles.pingButton,
-                      disabled: busy === `ping:${peer.id}`,
-                      onClick: () => void checkPeer(peer.id),
-                    }, busy === `ping:${peer.id}`
-                      ? h('span', { style: styles.buttonBusy }, spinnerGlyph(12), '检测中…')
-                      : '检测'),
-                    ' ',
-                    h('button', { style: styles.button, onClick: () => setEditing({ ...peer, token: peer.token }) }, '编辑'),
-                    ' ',
-                    h('button', { style: styles.button, onClick: () => setPeerDelete(peer) }, '删除'),
+                    h('div', { style: styles.tableActions },
+                      h('button', {
+                        style: styles.tableAction,
+                        onClick: () => {
+                          setFocusNav(peer.id)
+                          setActivePeer(peer.id)
+                          setSessions([])
+                          void loadSessions(peer.id)
+                        },
+                      }, '进入'),
+                      h('button', {
+                        style: busy === `ping:${peer.id}` ? { ...styles.tableAction, cursor: 'default', opacity: 0.7 } : styles.tableAction,
+                        disabled: busy === `ping:${peer.id}`,
+                        onClick: () => void checkPeer(peer.id),
+                      }, busy === `ping:${peer.id}`
+                        ? h('span', { style: styles.buttonBusy }, spinnerGlyph(12), '检测中')
+                        : '检测'),
+                      h('button', { style: styles.tableAction, onClick: () => setEditing({ ...peer, token: peer.token }) }, '编辑'),
+                      h('button', { style: styles.tableAction, onClick: () => setPeerDelete(peer) }, '删除'),
+                    ),
                   ),
                 ))),
               ),
@@ -3011,11 +3013,11 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
             h('h3', { style: styles.title }, '本机网关'),
             h('div', { style: { flex: 1 } }),
             h('button', {
-              style: refreshing ? { ...styles.button, cursor: 'default', opacity: 0.7 } : styles.button,
+              style: refreshing ? { ...styles.tableAction, width: 76, cursor: 'default', opacity: 0.7 } : { ...styles.tableAction, width: 76 },
               disabled: refreshing,
               onClick: () => void refresh(),
             }, refreshing
-              ? h('span', { style: styles.buttonBusy }, spinnerGlyph(12), '刷新中…')
+              ? h('span', { style: styles.buttonBusy }, spinnerGlyph(12), '刷新中')
               : '刷新'),
           ),
           h('div', { style: styles.row },
