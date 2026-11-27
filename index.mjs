@@ -281,6 +281,28 @@ export function apply(ctx, config = {}) {
           liveTransfers.delete(key)
           return ok({ cancelled: key })
         }
+        case 'upload': {
+          // 附件上行：前端把本地文件的字节 base64 交给本机 Host，由 Host 以操作者身份投进对端
+          // 的附件暂存区（`/api/session/uploadFileBinary`，即原生 `fileUpload.upload` 的那条原始路由）。
+          const id = typeof payload?.id === 'string' ? payload.id : ''
+          const peerEntry = peerById(id)
+          if (peerEntry === undefined) return fail('remote-peers/unknown-peer', `未知他端 ${JSON.stringify(id)}`)
+          const sessionId = typeof payload?.sessionId === 'string' ? payload.sessionId : ''
+          if (sessionId === '') return fail('remote-peers/bad-request', '需要 sessionId')
+          const data = typeof payload?.data === 'string' ? payload.data : ''
+          if (data === '') return fail('remote-peers/bad-request', '需要文件字节')
+          const uploaded = await uploadToPeer(peerEntry, {
+            sessionId,
+            name: typeof payload?.name === 'string' ? payload.name : '',
+            mediaType: typeof payload?.mediaType === 'string' ? payload.mediaType : '',
+            data,
+          }, signal)
+          return ok({
+            receiptId: uploaded.receiptId,
+            ...(uploaded.image === undefined ? {} : { image: uploaded.image }),
+            ...(uploaded.file === undefined ? {} : { file: uploaded.file }),
+          })
+        }
         case 'diag': {
           // TEMP-DIAG：把渲染器一侧探测到的结果落到 stateDir/diag.log（渲染器 console 无处可看）。
           const line = `${new Date().toISOString()} ${JSON.stringify(payload)}\n`
@@ -378,6 +400,43 @@ export function apply(ctx, config = {}) {
     const envelope = await response.json()
     if (envelope?.type !== 'server-response') throw new Error('对端响应不是 server-response')
     return envelope.result
+  }
+
+  /**
+   * 把一份字节投进对端的附件暂存区。
+   * 走的是对端自己的原始路由（原生 Client 的 `fileUpload.upload` / `uploadImage` 同一条），
+   * 因此对端落下的是一张普通 receipt：发送消息时正文里只带 `{ type: 'file', receiptId }`。
+   * @param peerEntry - 目标他端
+   * @param request - `{ sessionId, name, mediaType, data }`；`mediaType` 非空表示这是一张图片
+   * @param signal - 取消信号
+   * @returns 对端的 `{ receiptId, image | file }`
+   */
+  async function uploadToPeer(peerEntry, request, signal) {
+    const query = new URLSearchParams({ sessionId: request.sessionId })
+    if (request.name !== '') query.set('name', request.name)
+    if (request.mediaType !== '') query.set('mediaType', request.mediaType)
+    const response = await fetch(
+      `http://${peerEntry.host}:${peerEntry.port}/api/session/uploadFileBinary?${query.toString()}`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/octet-stream', [TOKEN_HEADER]: peerEntry.token },
+        body: Buffer.from(request.data, 'base64'),
+        signal,
+      },
+    )
+    if (response.status === 401) throw new Error('对端拒绝了共享密钥')
+    const text = await response.text()
+    let parsed
+    try {
+      parsed = JSON.parse(text)
+    } catch {
+      throw new Error(`对端返回 ${response.status}`)
+    }
+    if (parsed?.ok !== true) {
+      throw new Error(parsed?.error?.message ?? `对端拒绝了这份附件（HTTP ${response.status}）`)
+    }
+    if (typeof parsed.value?.receiptId !== 'string') throw new Error('对端没有返回附件收据')
+    return parsed.value
   }
 
   // 打开与下载共用同一份本机副本：对端文件只取一次，落在 `<stateDir>/files/<peerId>/<路径摘要>/<原名>`，

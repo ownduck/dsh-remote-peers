@@ -35,6 +35,7 @@ Both machines run this plugin. On the machine you want to reach, the panel shows
 
 - **Sessions**: every session of the peer, grouped by the peer's workspaces, archived ones pushed to the bottom
 - **Chat**: read history in pages, send a prompt, watch the reply stream in; thinking rows, code blocks, markdown and file cards follow the host app's look
+- **Attachments**: paste files with Ctrl+V or pick them from `+ → 文件`; images arrive as 64×64 thumbnails, every other file as a 240×64 file card. Each draft uploads to the peer as soon as it is picked and is sent with the prompt as a `{ type: 'file', receiptId }` part
 - **Approvals and questions**: approve or answer here; the decision is relayed to the peer
 - **Files**: preview PDF / Word / Excel / PPT / images / text in the right pane; downloads land in one shared local copy, and *Open*, *Download* and *Show in folder* all reuse it
 - **Run state**: a remote session that is still working keeps showing its running state, including after you reopen the panel
@@ -62,7 +63,7 @@ Exposed through the gateway (token required):
 
 Local-only routes (the browser talks to its own Host; peer tokens stay there):
 
-- `/remote-peers` RPC: `status`, `token/reset`, `peers/list|upsert|remove|ping`, `proxy`, `file/size(s)`, `open-local`, `local/copy`, `download/status|save|cancel`, `diag`
+- `/remote-peers` RPC: `status`, `token/reset`, `peers/list|upsert|remove|ping`, `proxy`, `upload`, `file/size(s)`, `open-local`, `local/copy`, `download/status|save|cancel`, `diag`
 - `GET|HEAD /api/remote-peers/file?id=<peer>&path=<absolute path>[&v=<version>][&download=1]`
 - `GET /api/remote-peers/export|markdown|stream|call|diag|vendor|office|present-open|changes`
 
@@ -70,6 +71,7 @@ Local-only routes (the browser talks to its own Host; peer tokens stay there):
 
 - **LAN only.** No NAT traversal or relay yet; both machines must reach each other directly (same subnet, or a VPN that keeps layer-3 reachability).
 - **The sidebar cannot nest.** DSH's `sidebar.panellist` is a flat list, and `sidebar.workspaces` is a single slot already owned by the host. So the plugin registers one entry per peer and renders the workspace tree inside the session list page.
+- **Attachments are base64 on the wire.** Picked files travel through the LAN RPC as base64 and are held in memory on the way, so they suit screenshots, documents and photos — hand a multi-hundred-megabyte archive to the file *download* path instead.
 - **Preview only, no editing.** Formats mirror the host's renderers (PDF via pdf.js, Office via the peer's `officeKit`).
 - **No `Trajectory` tab.** It needs event-level call trees, which this plugin does not reconstruct.
 - **`Show in folder` takes about 2 seconds.** Explorer itself takes that long to raise a window, so the button shows a fixed 2-second "Opening…" state instead of polling for the window.

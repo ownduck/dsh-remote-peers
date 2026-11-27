@@ -266,6 +266,8 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       '[data-rp-change-header]:hover [data-rp-change-hint] { display: inline; }',
       /* 文档加载指示器：原生 `StateDot` ongoing 的 1.5s 旋转 + 描边呼吸（同一条周期） */
       '@keyframes dsh-rp-spin { to { transform: rotate(360deg); } }',
+      /* 待发附件上传中：原生 `.progressBar` 的 1.2s 往返扫条（缩略图与文件卡共用） */
+      '@keyframes dsh-rp-upload { from { transform: translateX(-70%); } to { transform: translateX(220%); } }',
       '@keyframes dsh-rp-dash { 0% { stroke-dasharray: 12 150; stroke-dashoffset: 0; }'
       + ' 50% { stroke-dasharray: 24 150; stroke-dashoffset: -6; }'
       + ' 100% { stroke-dasharray: 12 150; stroke-dashoffset: 0; } }',
@@ -521,12 +523,17 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         background: 'var(--dsw-alias-card-fill, #fff)', color: T.pri, fontSize: 15, fontFamily: 'inherit',
         boxShadow: '0 4px 12px rgba(0, 0, 0, 0.18)', cursor: 'pointer',
       },
+      /* 提问里的文件卡：原生 `UserContent .fileCard` —— 240×64、0.5px l2 描边、lg 圆角、8/12 内距 */
       userFileCard: {
-        boxSizing: 'border-box', display: 'inline-flex', alignItems: 'center', gap: 8,
-        maxWidth: 280, padding: '8px 10px',
+        boxSizing: 'border-box', display: 'inline-flex', flex: '0 0 240px', alignItems: 'center', gap: 10,
+        width: 240, minHeight: 64, padding: '8px 12px',
         border: '0.5px solid var(--dsw-alias-border-l1, #ececec)', borderRadius: T.radiusLg10,
         background: 'var(--dsw-alias-card-fill, #fff)', color: T.pri,
       },
+      userFileIcon: { flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, color: 'var(--dsw-alias-label-secondary, #55585f)' },
+      userFileContent: { display: 'flex', flex: 1, flexDirection: 'column', minWidth: 0 },
+      userFileName: { overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', color: 'var(--dsw-alias-label-primary, #1f2328)', fontSize: 14, fontWeight: 500, lineHeight: '22px' },
+      userFileMeta: { overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', color: 'var(--dsw-alias-label-tertiary, #8f9399)', fontSize: 12, lineHeight: '15px' },
       userBubble: { maxWidth: '100%', background: 'var(--dsw-specific-bubble, #eef1f6)', borderRadius: 'var(--dsw-radius-xl, 16px)', padding: '10px 16px', fontSize: 14, lineHeight: '22px', color: T.pri, whiteSpace: 'pre-wrap', wordBreak: 'break-word' },
       assistantBlock: { fontSize: 14, lineHeight: '24px', color: 'var(--dsw-alias-label-primary, #1f2328)' },
       /* 消息元信息行：28px 行、8px 间距 —— MessageIconActions `.actions` */
@@ -818,9 +825,30 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       plusLabel: { flex: 'none', maxWidth: '40%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
       plusEn: { flex: 'none', maxWidth: '20%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: T.ter, fontSize: 12, lineHeight: '18px' },
       plusHint: { flex: 1, minWidth: 0, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', textAlign: 'right', color: T.ter, fontSize: 12, lineHeight: '18px' },
-      pendingFiles: { display: 'flex', flexWrap: 'wrap', gap: 6, padding: '2px 2px 6px' },
-      pendingFileChip: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, border: '1px solid var(--dsh-border, #e3e3e3)', borderRadius: 10, padding: '3px 8px', maxWidth: 220 },
-      pendingFileRemove: { border: 'none', background: 'transparent', cursor: 'pointer', opacity: 0.5, fontSize: 12, color: 'inherit', padding: 0 },
+      /* 待发附件行：原生 `ComposerAttachments .rail` —— 2px 10px 顶距、10px 间距、横向滚动
+         （卡片 flex gap 12 会顺手把它和草稿拉开，往上回 6px）。 */
+      attachRail: { minWidth: 0, display: 'flex', alignItems: 'stretch', gap: 10, padding: '10px 10px 0', marginBottom: -6, overflowX: 'auto', overflowY: 'hidden', scrollbarWidth: 'none' },
+      /* 图片草稿：原生 `.imageItem` 64×64（缩略图 64 圆角 xl、右上 18px ✕、底部 2px 进度） */
+      attachImageItem: { position: 'relative', flex: 'none', width: 64, height: 64 },
+      attachThumb: { boxSizing: 'border-box', width: 64, height: 64, padding: 0, overflow: 'hidden', border: '0.5px solid var(--dsw-alias-border-l2-darkmode-thin, #ececec)', borderRadius: 'var(--dsw-radius-xl, 16px)', background: 'var(--dsw-alias-interactive-bg-hover, #f5f5f7)', cursor: 'zoom-in' },
+      attachThumbImg: { display: 'block', width: '100%', height: '100%', objectFit: 'cover' },
+      attachThumbFailed: { cursor: 'pointer', borderColor: 'var(--dsw-alias-state-error-primary, #e5484d)' },
+      attachFailureGlyph: { position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', color: 'var(--dsw-alias-state-error-primary, #e5484d)', fontSize: 15, pointerEvents: 'none' },
+      attachRemove: { position: 'absolute', top: 4, right: 4, zIndex: 1, display: 'grid', placeItems: 'center', width: 18, height: 18, padding: 0, border: 'none', borderRadius: '50%', cornerShape: 'round', background: 'var(--dsw-alias-button-contrast-fill, rgba(0,0,0,0.55))', color: 'var(--dsw-alias-label-primary-inverted, #fff)', fontSize: 11, lineHeight: 1, cursor: 'pointer' },
+      /* 文件草稿：原生 `FileCard` 240×64、0.5px l2 描边、lg 圆角、28px 图标位 */
+      attachFileCard: { position: 'relative', boxSizing: 'border-box', flex: 'none', display: 'inline-flex', alignItems: 'center', gap: 10, width: 240, height: 64, padding: '0 12px', border: '0.5px solid var(--dsw-alias-border-l2, #e3e4e6)', borderRadius: 'var(--dsw-radius-lg, 10px)', background: 'var(--dsw-specific-input-major, #fff)', textAlign: 'left' },
+      attachFileCardFailed: { borderColor: 'var(--dsw-alias-state-error-primary, #e5484d)' },
+      attachFileIcon: { display: 'inline-flex', flex: 'none', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, color: 'var(--dsw-alias-label-secondary, #55585f)' },
+      attachFileSpinner: { width: 20, height: 20, boxSizing: 'border-box', border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%', cornerShape: 'round', animation: 'dsh-rp-spin 0.8s linear infinite' },
+      attachFileBody: { display: 'flex', flex: 1, flexDirection: 'column', minWidth: 0, padding: '8px 0' },
+      attachFileRetry: { padding: 0, border: 0, background: 'transparent', color: 'inherit', font: 'inherit', textAlign: 'left', cursor: 'pointer' },
+      attachFileName: { overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', color: 'var(--dsw-alias-label-primary, #1f2328)', fontSize: 14, fontWeight: 500, lineHeight: '22px' },
+      attachFileMeta: { overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', color: 'var(--dsw-alias-label-tertiary, #8f9399)', fontSize: 12, lineHeight: '15px' },
+      attachFileMetaFailed: { color: 'var(--dsw-alias-state-error-primary, #e5484d)' },
+      /* 进度条：缩略图内距 8/6，文件卡内距 12/5（原生两处各自的值） */
+      attachThumbProgress: { position: 'absolute', left: 8, right: 8, bottom: 6, height: 2, overflow: 'hidden', borderRadius: 1, background: 'var(--dsw-specific-file-upload-track, #ececec)', pointerEvents: 'none' },
+      attachFileProgress: { position: 'absolute', left: 12, right: 12, bottom: 5, height: 2, overflow: 'hidden', borderRadius: 1, background: 'var(--dsw-specific-file-upload-track, #ececec)' },
+      attachProgressBar: { display: 'block', width: '35%', height: '100%', borderRadius: 'inherit', background: 'var(--dsw-alias-brand-primary, #3964FE)', animation: 'dsh-rp-upload 1.2s ease-in-out infinite alternate' },
       commandToken: { position: 'absolute', left: 0, top: 0, fontSize: 14, fontWeight: 500, color: 'var(--dsw-alias-state-business-primary, #3964FE)', pointerEvents: 'none', lineHeight: '24px', paddingTop: 4, paddingLeft: 14 },
       commandRow: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, opacity: 0.8 },
       commandCaret: { opacity: 0.45, fontFamily: 'ui-monospace, Menlo, monospace' },
@@ -1246,7 +1274,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       const [plusOpen, setPlusOpen] = useState(false)
       /** 待插入的指令（目标、计划）：显示蓝色指令名 + 输入提示。 */
       const [pendingCommand, setPendingCommand] = useState(null)
-      /** 通过「文件」选到的本地文件（跨端上传未接入，仅名称占位）。 */
+      /** 待发附件：图片是缩略图草稿（原生 image draft），其余是文件卡 —— 选中即开始跨端上传。 */
       const [pendingFiles, setPendingFiles] = useState([])
       /** 导出开始的提示弹窗。 */
       const [exportNotice, setExportNotice] = useState(null)
@@ -2222,14 +2250,20 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       }, [call, openStream, closeStream, catalog, loadCatalog, loadPresets, loadPermissionCatalog,
         permissionOptions.length, presets.length, sessions])
 
-      /** 执行一条斜杠命令（走宿主 `commands/execute`，与原生 composer 一致）。 */
-      const runCommand = useCallback(async (peerId, sessionId, line) => {
+      /**
+       * 执行一条斜杠命令（走宿主 `commands/execute`，与原生 composer 一致）。
+       * @param peerId - 目标他端
+       * @param sessionId - 对端会话
+       * @param line - 完整命令行
+       * @param attachments - 该次提交附件收据（原生 `submittedAttachments` 同字段）
+       */
+      const runCommand = useCallback(async (peerId, sessionId, line, attachments = []) => {
         setSending(true)
         try {
           const result = await call('proxy', {
             id: peerId,
             method: 'commands/execute',
-            payload: { args: { agentId: sessionId, line, submittedAttachments: [] } },
+            payload: { args: { agentId: sessionId, line, submittedAttachments: attachments } },
           })
           const envelope = envelopeOf(result, '对端拒绝了这条指令')
           const outcome = envelope.value?.result
@@ -2242,21 +2276,28 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         }
       }, [call])
 
-      /** 在远端会话里发一句话：`session/prompt` 只回执，正文来自 follow 流。 */
-      const sendPrompt = useCallback(async (peerId, sessionId, text) => {
+      /**
+       * 在远端会话里发一句话：`session/prompt` 只回执，正文来自 follow 流。
+       * @param peerId - 目标他端
+       * @param sessionId - 对端会话
+       * @param text - 正文
+       * @param attachments - 已就位的附件收据（`{ type: 'file', receiptId }`），与原生同一个 content 数组
+       * @returns 是否已被对端接受（失败时调用方保留草稿与附件）
+       */
+      const sendPrompt = useCallback(async (peerId, sessionId, text, attachments = []) => {
         const line = text.trim()
-        if (line === '') return
+        if (line === '' && attachments.length === 0) return false
         // 发出去就回到尾部（原生发消息即沉底），免得新回复与思考长在可视区之外。
         followRef.current = true
         setShowToBottom(false)
         setTurnStartedAt(Date.now())
         if (bodyRef.current !== null) bodyRef.current.scrollTop = bodyRef.current.scrollHeight
         if (line.startsWith('/')) {
-          await runCommand(peerId, sessionId, line)
+          await runCommand(peerId, sessionId, line, attachments)
           setPromptText('')
           resetComposerHeight()
           setPendingCommand(null)
-          return
+          return true
         }
         setSending(true)
         try {
@@ -2270,7 +2311,8 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
                   requestId,
                   sessionId,
                   mode: 'queue',
-                  content: [{ type: 'text', text }],
+                  // 与原生 `sendSession` 同序：附件收据在前、正文在后。
+                  content: [...attachments, ...(line === '' ? [] : [{ type: 'text', text }])],
                   clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
                 },
               },
@@ -2280,13 +2322,114 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
           setPromptText('')
           resetComposerHeight()
           setError('')
+          return true
         } catch (failure) {
           setError(errorText(failure))
           setTurnStartedAt(0)
+          return false
         } finally {
           setSending(false)
         }
       }, [call, runCommand])
+
+      /**
+       * 传一份待发附件：字节交给本机 Host（`/remote-peers` 的 `upload`），由它投进对端附件暂存区。
+       * 成功后拿到 receiptId，发送时只带这张收据；失败把失败态留在卡片上，点一下重试。
+       * @param peerId - 目标他端
+       * @param sessionId - 对端会话
+       * @param attachment - 待发附件（含 `file`）
+       */
+      const uploadAttachment = useCallback(async (peerId, sessionId, attachment) => {
+        const patch = (next) => {
+          setPendingFiles((previous) => previous.map((item) => (item.id === attachment.id ? { ...item, ...next } : item)))
+        }
+        try {
+          const data = await readFileBase64(attachment.file)
+          const result = await call('upload', {
+            id: peerId,
+            sessionId,
+            name: attachment.name,
+            // 图片走 `uploadImage` 那条（带 mediaType），其余按普通文件收据上传。
+            mediaType: attachment.kind === 'image' ? attachment.mediaType : '',
+            data,
+          })
+          const envelope = envelopeOf(result, '对端拒绝了这份附件')
+          const receiptId = typeof envelope.value?.receiptId === 'string' ? envelope.value.receiptId : ''
+          if (receiptId === '') throw new Error('对端没有返回附件收据')
+          patch({ status: 'ready', receiptId, error: '' })
+        } catch (failure) {
+          patch({ status: 'error', error: errorText(failure) })
+        }
+      }, [call])
+
+      /**
+       * 登记待发附件：图片成缩略图草稿，其余成文件卡，随即开始上传（与原生一样不等发送）。
+       * @param files - 粘贴或选到的浏览器 File
+       */
+      const stageFiles = useCallback((files) => {
+        if (activePeer === '' || openSession === '') {
+          setError('先进入一个远端会话，再添加附件')
+          return
+        }
+        const staged = files.map((file) => {
+          const image = IMAGE_MEDIA_TYPES.has(file.type)
+          return {
+            id: `att-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+            kind: image ? 'image' : 'file',
+            name: file.name === '' ? (image ? '图片' : '文件') : file.name,
+            size: file.size,
+            mediaType: file.type,
+            file,
+            previewUrl: image ? URL.createObjectURL(file) : '',
+            status: 'uploading',
+            receiptId: '',
+            error: '',
+          }
+        })
+        setPendingFiles((previous) => [...previous, ...staged])
+        for (const attachment of staged) void uploadAttachment(activePeer, openSession, attachment)
+      }, [activePeer, openSession, uploadAttachment])
+
+      /** 移除一份待发附件：顺手释放缩略图的 blob URL。 */
+      const dropStaged = useCallback((id) => {
+        setPendingFiles((previous) => {
+          const target = previous.find((item) => item.id === id)
+          if (target !== undefined && target.previewUrl !== '') URL.revokeObjectURL(target.previewUrl)
+          return previous.filter((item) => item.id !== id)
+        })
+      }, [])
+
+      /** 重传一份失败附件。 */
+      const retryStaged = useCallback((attachment) => {
+        setPendingFiles((previous) => previous.map((item) => (item.id === attachment.id
+          ? { ...item, status: 'uploading', error: '' }
+          : item)))
+        void uploadAttachment(activePeer, openSession, attachment)
+      }, [activePeer, openSession, uploadAttachment])
+
+      /** 发送成功后才清空附件行，并把缩略图的 blob URL 一起放掉。 */
+      const releaseStaged = useCallback(() => {
+        setPendingFiles((previous) => {
+          for (const item of previous) if (item.previewUrl !== '') URL.revokeObjectURL(item.previewUrl)
+          return []
+        })
+      }, [])
+
+      // 焦点不在任何输入控件里时粘贴文件，也落到这块输入卡上（原生 `ComposerFileIntake` 的同一条规则）。
+      useEffect(() => {
+        const editable = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])'
+        const onPaste = (event) => {
+          if (event.defaultPrevented || event.clipboardData === null) return
+          const origin = event.composedPath().find((value) => value instanceof Element)
+          if (origin instanceof Element && origin.closest(editable) !== null) return
+          const files = clipboardFilesOf(event.clipboardData)
+          if (files.length === 0) return
+          event.preventDefault()
+          stageFiles(files)
+        }
+        document.addEventListener('paste', onPaste)
+        return () => document.removeEventListener('paste', onPaste)
+      }, [stageFiles])
 
       /**
        * 切权限预设：走宿主的 `commands/execute`（`/permission <preset>`），
@@ -4975,10 +5118,13 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
             images.map((file, index) => h(MessageImage, { key: `image${index}`, file, peerId, sessionId, compact }))),
           others.length === 0 ? null : h('div', { style: styles.userFileStack },
             others.map((file, index) => h('span', { key: `file${index}`, style: styles.userFileCard, title: file.name },
-              h('span', { style: styles.presentIcon }, '▤'),
-              h('span', { style: styles.presentBody },
-                h('span', { style: styles.presentName }, file.name),
-                h('span', { style: styles.presentDesc }, [file.meta, file.bytes === undefined ? '' : formatBytes(file.bytes)].filter(Boolean).join(' · ') || '文件'),
+              /* 原生 `UserContent`：28px 类型图标 + 名字 + 「扩展名 大小」两行 */
+              h('span', { style: styles.userFileIcon }, fileGlyph(18)),
+              h('span', { style: styles.userFileContent },
+                h('span', { style: styles.userFileName }, file.name),
+                h('span', { style: styles.userFileMeta },
+                  [(String(file.name).split('.').pop() ?? '').toUpperCase().slice(0, 8), formatBytes(file.bytes)]
+                    .filter((part) => part !== '').join(' ') || '文件'),
               ),
             ))),
         )
@@ -6402,12 +6548,97 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         element.style.height = `${Math.min(element.scrollHeight, 336)}px`
       }
 
+      /**
+       * 待发附件行 —— 原生 `ComposerAttachments.rail`：图片是 64×64 缩略图（悬停出 ✕、底部进度），
+       * 其余是 240×64 的文件卡（图标 / 名字 / 大小，上传中换成转圈 + 进度）。
+       */
+      function renderStagedAttachments() {
+        if (pendingFiles.length === 0) return null
+        return h('div', { style: styles.attachRail },
+          pendingFiles.map((file) => (file.kind === 'image'
+            ? h(StagedImage, { key: file.id, file, onRemove: dropStaged, onRetry: retryStaged })
+            : h(StagedFile, { key: file.id, file, onRemove: dropStaged, onRetry: retryStaged }))))
+      }
+
+      /** 缩略图与文件卡右上角共用的 18px 移除钮。 */
+      function stagedRemoveButton(file, onRemove) {
+        return h('button', {
+          type: 'button',
+          style: styles.attachRemove,
+          title: '移除',
+          'aria-label': `移除 ${file.name}`,
+          onClick: () => onRemove(file.id),
+        }, '✕')
+      }
+
+      /** 一张图片草稿：缩略图 + 上传失败可点重试 + 点开原生灯箱。 */
+      function StagedImage({ file, onRemove, onRetry }) {
+        const [open, setOpen] = useState(false)
+        const failed = file.status === 'error'
+        return h(react.Fragment, null,
+          h('div', { style: styles.attachImageItem },
+            h('button', {
+              type: 'button',
+              style: failed ? { ...styles.attachThumb, ...styles.attachThumbFailed } : styles.attachThumb,
+              title: failed ? `${file.error || '上传失败'}（点击重试）` : '查看大图',
+              'aria-label': failed ? `重试上传 ${file.name}` : `查看 ${file.name}`,
+              onClick: () => { if (failed) onRetry(file); else setOpen(true) },
+            },
+              h('img', { src: file.previewUrl, alt: file.name, draggable: false, style: styles.attachThumbImg }),
+              failed ? h('span', { style: styles.attachFailureGlyph, 'aria-hidden': 'true' }, '!') : null,
+            ),
+            file.status === 'uploading'
+              ? h('span', { style: styles.attachThumbProgress, 'aria-hidden': 'true' },
+                  h('span', { style: styles.attachProgressBar }))
+              : null,
+            stagedRemoveButton(file, onRemove),
+          ),
+          open ? h(ImageLightbox, { url: file.previewUrl, alt: file.name, onClose: () => setOpen(false) }) : null,
+        )
+      }
+
+      /** 一份文件草稿：原生 `FileCard`（图标位 28、14/22 名字、12/15 大小；失败描边转红并可点重试）。 */
+      function StagedFile({ file, onRemove, onRetry }) {
+        const failed = file.status === 'error'
+        const uploading = file.status === 'uploading'
+        const extension = String(file.name).split('.').pop() ?? ''
+        const meta = uploading
+          ? '上传中…'
+          : failed
+            ? (file.error || '上传失败（点击重试）')
+            : [extension.toUpperCase().slice(0, 8), formatBytes(file.size)].filter((part) => part !== '').join(' ')
+        return h('div', {
+          style: failed ? { ...styles.attachFileCard, ...styles.attachFileCardFailed } : styles.attachFileCard,
+          title: file.name,
+        },
+          h('span', { style: styles.attachFileIcon }, uploading ? h('span', { style: styles.attachFileSpinner }) : fileGlyph(18)),
+          failed
+            ? h('button', { type: 'button', style: { ...styles.attachFileBody, ...styles.attachFileRetry }, onClick: () => onRetry(file) },
+                h('span', { style: styles.attachFileName }, file.name),
+                h('span', { style: { ...styles.attachFileMeta, ...styles.attachFileMetaFailed } }, meta))
+            : h('span', { style: styles.attachFileBody },
+                h('span', { style: styles.attachFileName }, file.name),
+                h('span', { style: styles.attachFileMeta }, meta)),
+          stagedRemoveButton(file, onRemove),
+          uploading
+            ? h('span', { style: styles.attachFileProgress, 'aria-hidden': 'true' }, h('span', { style: styles.attachProgressBar }))
+            : null,
+        )
+      }
+
       /** 底部输入区：药丸容器 + 模型/推理等级 + 状态行。 */
       function renderComposer() {
         /** 输入框共用属性：受控值 + 自适应高度 + Enter 提交（Shift+Enter 换行）。 */
         const inputProps = (style, placeholder) => ({
           ref: inputRef, style, rows: 1, value: promptText, placeholder,
           onChange: (event) => { setPromptText(event.target.value); growComposer(event.target) },
+          /* 粘贴带文件就收下来（原生 PASTE_COMMAND：先吃附件，只有纯文本才走默认粘贴）。 */
+          onPaste: (event) => {
+            const files = clipboardFilesOf(event.clipboardData)
+            if (files.length === 0) return
+            event.preventDefault()
+            stageFiles(files)
+          },
           onKeyDown: (event) => {
             if (event.key === 'Enter' && !event.shiftKey) {
               event.preventDefault()
@@ -6435,17 +6666,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
           ),
           h('div', { style: { ...styles.composerPill, maxWidth: cardWidth, '--dsw-elevation-stroke-color': 'var(--dsw-alias-border-l2, #e3e4e6)' } },
             h('div', { style: styles.overlayAnchor }, plusOpen ? renderPlusMenu() : null),
-            pendingFiles.length === 0 ? null : h('div', { style: styles.pendingFiles },
-              pendingFiles.map((file, index) => h('span', { key: `${file.name}-${index}`, style: styles.pendingFileChip },
-                h('span', { style: { opacity: 0.6 } }, '▤'),
-                h('span', { style: { maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, file.name),
-                h('button', {
-                  style: styles.pendingFileRemove,
-                  title: '移除',
-                  onClick: () => setPendingFiles((previous) => previous.filter((_, position) => position !== index)),
-                }, '×'),
-              )),
-            ),
+            renderStagedAttachments(),
             pendingCommand === null
               ? h('textarea', inputProps(styles.composerInput, '发消息或创建任务，/ 调用指令，@ 文件或对话'))
               : h('div', { style: { position: 'relative' } },
@@ -6516,8 +6737,9 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
                 pickerOpen && catalog !== null ? renderModelPicker() : null,
               ),
               h('button', {
-                style: sending ? styles.sendCircle : (promptText.trim() === '' && pendingCommand === null ? { ...styles.sendCircle, opacity: 0.4, cursor: 'default' } : styles.sendCircle),
-                disabled: sending || (promptText.trim() === '' && pendingCommand === null),
+                /* 有附件也能发（原生 enable = 非空正文 或 有附件） */
+                style: sending ? styles.sendCircle : (promptText.trim() === '' && pendingCommand === null && pendingFiles.length === 0 ? { ...styles.sendCircle, opacity: 0.4, cursor: 'default' } : styles.sendCircle),
+                disabled: sending || (promptText.trim() === '' && pendingCommand === null && pendingFiles.length === 0),
                 onClick: () => void submitComposer(),
                 title: '发送',
                 }, sending ? sendingGlyph() : sendGlyph()),
@@ -6530,8 +6752,8 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
             multiple: true,
             style: { display: 'none' },
             onChange: (event) => {
-              const chosen = Array.from(event.target.files ?? []).map((file) => ({ name: file.name, size: file.size }))
-              if (chosen.length > 0) setPendingFiles((previous) => [...previous, ...chosen])
+              const chosen = Array.from(event.target.files ?? [])
+              if (chosen.length > 0) stageFiles(chosen)
               event.target.value = ''
             },
           }),
@@ -6539,14 +6761,27 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         )
       }
 
-      /** 发送：带待插入指令时拼成完整命令行，附件本期不发。 */
+      /**
+       * 发送：带待插入指令时拼成完整命令行；附件按 receiptId 一起交给对端（原生同一个 content 数组）。
+       * 还在上传或上传失败时先拦住 —— 原生也是「等所有附件就绪才发」。
+       */
       async function submitComposer() {
         const prefix = pendingCommand?.prefix ?? ''
         const line = `${prefix}${promptText}`.trim()
-        if (line === '') return
-        if (pendingFiles.length > 0) setError('附件未跨端上传：本期只发送文本')
-        await sendPrompt(activePeer, openSession, line)
-        setPendingFiles([])
+        if (pendingFiles.some((file) => file.status === 'uploading')) {
+          setError('附件还在上传，稍等一下再发')
+          return
+        }
+        if (pendingFiles.some((file) => file.status === 'error')) {
+          setError('有附件没传上去：点一下卡片重试，或先移除')
+          return
+        }
+        const receipts = pendingFiles
+          .filter((file) => file.receiptId !== '')
+          .map((file) => ({ type: 'file', receiptId: file.receiptId }))
+        if (line === '' && receipts.length === 0) return
+        const sent = await sendPrompt(activePeer, openSession, line, receipts)
+        if (sent) releaseStaged()
       }
 
       /** 发送箭头：照搬 InputBar.tsx 的 16px 实心箭头（不是描边版 send-outline）。 */
@@ -7321,6 +7556,44 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
     /** 异常转可读文案（取 message，非 Error 时原样转字符串）。 */
     function errorText(failure) {
       return String(failure?.message ?? failure)
+    }
+
+    /** 原生 `isImageMediaType` 认的四种图片类型：只有它们才走缩略图草稿。 */
+    const IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
+
+    /**
+     * 读一份本地文件为 base64（不含 `data:` 前缀）：走 FileReader 的 dataURL，
+     * 大图大文件也不用自己切块拼字符串。
+     * @param file - 浏览器 File
+     * @returns base64 正文
+     */
+    function readFileBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => {
+          const result = typeof reader.result === 'string' ? reader.result : ''
+          const comma = result.indexOf(',')
+          resolve(comma === -1 ? '' : result.slice(comma + 1))
+        }
+        reader.onerror = () => { reject(reader.error ?? new Error('读取本地文件失败')) }
+        reader.readAsDataURL(file)
+      })
+    }
+
+    /**
+     * 剪贴板里的文件，按剪贴板顺序（原生 `clipboardFiles` 的同一取法）。
+     * @param transfer - 一次粘贴事件的 clipboardData
+     * @returns 粘贴进来的 File 列表
+     */
+    function clipboardFilesOf(transfer) {
+      if (transfer === null || transfer === undefined) return []
+      const files = []
+      for (const item of transfer.items ?? []) {
+        if (item.kind !== 'file') continue
+        const file = typeof item.getAsFile === 'function' ? item.getAsFile() : null
+        if (file !== null) files.push(file)
+      }
+      return files
     }
 
     /** RPC 信封校验：对端说 ok 才算成功，否则按对端文案抛错；返回值用 `.value` 取。 */

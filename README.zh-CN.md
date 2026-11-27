@@ -38,6 +38,8 @@ dsh plugin --profile desktop remove dsh-remote-peers
 
 - **会话**：对端的全部会话，按对端工作区分组，已归档的置底
 - **对话**：分页读历史、发消息、流式接收回复；思考行、代码块、Markdown、文件卡片都对齐宿主外观
+- **附件**：`Ctrl+V` 直接粘贴，或从 `+ → 文件` 选；图片成 64×64 缩略图，其余文件成 240×64 文件卡。
+  选中即开始上传到对端，发送时随正文带一张 `{ type: 'file', receiptId }` 收据
 - **审批 / 提问**：在本侧批准或作答，决定回传给对端
 - **文件**：右侧预览 PDF / Word / Excel / PPT / 图片 / 文本；下载落进同一份本机副本，
   **打开**、**下载**、**显示文件位置** 共用这份副本
@@ -69,7 +71,7 @@ dsh plugin --profile desktop remove dsh-remote-peers
 
 只在本机可达（浏览器与本机 Host 通信，对端密钥不出 Host）：
 
-- `/remote-peers` RPC：`status`、`token/reset`、`peers/list|upsert|remove|ping`、`proxy`、`file/size(s)`、
+- `/remote-peers` RPC：`status`、`token/reset`、`peers/list|upsert|remove|ping`、`proxy`、`upload`、`file/size(s)`、
   `open-local`、`local/copy`、`download/status|save|cancel`、`diag`
 - `GET|HEAD /api/remote-peers/file?id=<peer>&path=<绝对路径>[&v=<版本>][&download=1]`
 - `GET /api/remote-peers/export|markdown|stream|call|diag|vendor|office|present-open|changes`
@@ -80,6 +82,8 @@ dsh plugin --profile desktop remove dsh-remote-peers
 - **侧栏做不成文件夹。** 宿主的 `sidebar.panellist` 是平铺列表，`sidebar.workspaces` 是单槽且已被宿主占用，
   所以本插件给每个他端注册一条入口，把工作区树放在会话列表页里。
 - **只做预览，不做编辑。** 各格式对齐宿主渲染链（PDF 走 pdf.js，Office 走对端 `officeKit`）。
+- **附件以 base64 过链路。** 选中的文件走局域网 RPC 传 base64，途中要在内存里放一份，
+  适合截图、文档、照片；几百 MB 的大包请走文件**下载**那条路。
 - **没有「轨迹」tab。** 它需要事件级调用树，本插件不重建。
 - **「显示文件位置」固定约 2 秒。** 资源管理器起窗本身就要这么久，按钮固定显示 2 秒「正在打开…」，不再轮询窗口。
 
