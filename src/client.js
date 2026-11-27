@@ -29,6 +29,11 @@ const PROCESS_ROW_ICONS = {
     const LIVE_DOWNLOADS = new Map()
     /** 已经提示过失败的 Host 任务（`key:startedAt`），避免每轮轮询都弹一次。 */
     const FAILED_NOTICE = new Set()
+    /**
+     * 文案里对「另一台机器」的简称：界面只认这一处，换称呼改这一行即可。
+     * 实现笔记与代码注释仍沿用「对端 / 他端」这两个技术代称，不进界面。
+     */
+    const PEER_NOUN = '节点'
     /** 刚点过取消的本地 key → 时间戳：Host 清理有延迟，这段时间内不把任务贴回来。 */
     const CANCELLING = new Map()
     /** `<peerId>:<对端路径>` → 本机是否已有副本（「显示文件位置」据此决定是否可点、要不要置灰）。 */
@@ -2737,12 +2742,12 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
 
         isFocused ? null : h('div', { style: styles.card },
           h('div', { style: styles.row },
-            h('h3', { style: styles.title }, '他端'),
+            h('h3', { style: styles.title }, PEER_NOUN),
             h('div', { style: { flex: 1 } }),
             h('button', { style: styles.primary, onClick: () => setEditing({ name: '', host: '', port: '', token: '' }) }, '添加'),
           ),
           peers.length === 0
-            ? h('div', { style: styles.muted }, '还没有他端。在对端装上同一插件、拿到它的地址与密钥后添加。')
+            ? h('div', { style: styles.muted }, `还没有${PEER_NOUN}。在另一台机器装上同一插件、拿到它的地址与密钥后添加。`)
             : h('table', { style: styles.table },
                 h('thead', null, h('tr', null,
                   h('th', { style: styles.th }, '名称'),
@@ -2823,7 +2828,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
               }, '保存'),
               h('button', { style: styles.button, onClick: () => { setEditing(null); setPeerFormError('') } }, '取消'),
               h('span', { style: peerFormError === '' ? styles.muted : styles.error }, peerFormError === ''
-                ? '显示名可留空；地址可直接粘贴 ip:端口；端口与密钥取自对端「远程端互联」页面。'
+                ? `显示名可留空；地址可直接粘贴 ip:端口；端口与密钥取自${PEER_NOUN}「远程端互联」页面。`
                 : peerFormError),
             ),
           ),
@@ -2841,7 +2846,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
           dialogHead(h('span', { style: styles.permWarn }, warningIcon(18)), '重置共享密钥？', close),
           h('div', { style: styles.permDialogBody },
             h('p', { style: { margin: 0 } },
-              '重置会立刻换成新的密钥，正在使用的旧密钥随即失效；已经用旧密钥登记过本机的他端需要重新填新密钥才能连上。本机对他端的记录不受影响。'),
+              `重置会立刻换成新的密钥，正在使用的旧密钥随即失效；已经用旧密钥登记过本机的${PEER_NOUN}需要重新填新密钥才能连上。本机对${PEER_NOUN}的记录不受影响。`),
           ),
           h('div', { style: styles.permDialogFooter },
             h('button', { style: styles.permCancel, onClick: close }, '取消'),
@@ -2858,10 +2863,10 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         const close = () => setPeerDelete(null)
         const name = peer?.name ? String(peer.name) : `${peer?.host ?? ''}:${peer?.port ?? ''}`
         return dialogShell(close, 'min(380px, 100%)',
-          dialogHead(h('span', { style: styles.permWarn }, warningIcon(18)), '删除这个他端？', close),
+          dialogHead(h('span', { style: styles.permWarn }, warningIcon(18)), `删除这个${PEER_NOUN}？`, close),
           h('div', { style: styles.permDialogBody },
             h('p', { style: { margin: 0 } },
-              `${name}（${peer?.host ?? ''}:${peer?.port ?? ''}）会从左栏和列表里移除，本机保存的地址与密钥一并删除；对端本身不受影响，之后可以重新添加。`),
+              `${name}（${peer?.host ?? ''}:${peer?.port ?? ''}）会从左栏和列表里移除，本机保存的地址与密钥一并删除；${PEER_NOUN}本身不受影响，之后可以重新添加。`),
           ),
           h('div', { style: styles.permDialogFooter },
             h('button', { style: styles.permCancel, onClick: close }, '取消'),

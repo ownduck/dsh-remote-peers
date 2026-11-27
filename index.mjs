@@ -185,7 +185,7 @@ export function apply(ctx, config = {}) {
         case 'file/size': {
           const id = typeof payload?.id === 'string' ? payload.id : ''
           const peerEntry = peerById(id)
-          if (peerEntry === undefined) return fail('remote-peers/unknown-peer', `未知他端 ${JSON.stringify(id)}`)
+          if (peerEntry === undefined) return fail('remote-peers/unknown-peer', `未知节点 ${JSON.stringify(id)}`)
           const source = typeof payload?.path === 'string' ? payload.path : ''
           if (!isAbsoluteFsPath(source)) return fail('remote-peers/bad-path', '需要绝对文件路径')
           const sessionId = typeof payload?.sessionId === 'string' ? payload.sessionId : ''
@@ -200,7 +200,7 @@ export function apply(ctx, config = {}) {
           // 不让一个坏路径拖垮整批（前端把 null 记成 error 占位，不再重问）。
           const id = typeof payload?.id === 'string' ? payload.id : ''
           const peerEntry = peerById(id)
-          if (peerEntry === undefined) return fail('remote-peers/unknown-peer', `未知他端 ${JSON.stringify(id)}`)
+          if (peerEntry === undefined) return fail('remote-peers/unknown-peer', `未知节点 ${JSON.stringify(id)}`)
           const sessionId = typeof payload?.sessionId === 'string' ? payload.sessionId : ''
           const wanted = Array.isArray(payload?.paths) ? payload.paths : []
           const paths = wanted
@@ -229,7 +229,7 @@ export function apply(ctx, config = {}) {
           // 「显示文件位置」用的探针：只回答本机有没有这份副本，绝不顺手去下载。
           const id = typeof payload?.id === 'string' ? payload.id : ''
           const peerEntry = peerById(id)
-          if (peerEntry === undefined) return fail('remote-peers/unknown-peer', `未知他端 ${JSON.stringify(id)}`)
+          if (peerEntry === undefined) return fail('remote-peers/unknown-peer', `未知节点 ${JSON.stringify(id)}`)
           const source = typeof payload?.path === 'string' ? payload.path : ''
           if (source === '' || source.includes('\0') || !isAbsoluteFsPath(source)) {
             return fail('remote-peers/bad-path', '需要绝对文件路径')
@@ -258,7 +258,7 @@ export function apply(ctx, config = {}) {
           // 不再弹「另存为」：直接落到本机副本目录。已有副本就当场返回 `reused`，一次字节都不取。
           const id = typeof payload?.id === 'string' ? payload.id : ''
           const peerEntry = peerById(id)
-          if (peerEntry === undefined) return fail('remote-peers/unknown-peer', `未知他端 ${JSON.stringify(id)}`)
+          if (peerEntry === undefined) return fail('remote-peers/unknown-peer', `未知节点 ${JSON.stringify(id)}`)
           const source = typeof payload?.path === 'string' ? payload.path : ''
           if (source === '' || source.includes('\0') || !isAbsoluteFsPath(source)) {
             return fail('remote-peers/bad-path', '需要绝对文件路径')
@@ -286,7 +286,7 @@ export function apply(ctx, config = {}) {
           // 的附件暂存区（`/api/session/uploadFileBinary`，即原生 `fileUpload.upload` 的那条原始路由）。
           const id = typeof payload?.id === 'string' ? payload.id : ''
           const peerEntry = peerById(id)
-          if (peerEntry === undefined) return fail('remote-peers/unknown-peer', `未知他端 ${JSON.stringify(id)}`)
+          if (peerEntry === undefined) return fail('remote-peers/unknown-peer', `未知节点 ${JSON.stringify(id)}`)
           const sessionId = typeof payload?.sessionId === 'string' ? payload.sessionId : ''
           if (sessionId === '') return fail('remote-peers/bad-request', '需要 sessionId')
           const data = typeof payload?.data === 'string' ? payload.data : ''
@@ -648,7 +648,7 @@ export function apply(ctx, config = {}) {
   async function openLocal(payload, signal) {
     const startedAt = Date.now()
     const peerEntry = peerById(typeof payload?.id === 'string' ? payload.id : undefined)
-    if (peerEntry === undefined) throw new Error('未找到该他端，请先在列表里登记')
+    if (peerEntry === undefined) throw new Error('未找到该节点，请先在列表里登记')
     const source = typeof payload?.path === 'string' ? payload.path : ''
     if (source === '' || source.includes('\0') || !isAbsoluteFsPath(source)) throw new Error('需要绝对文件路径')
     const action = payload?.action === 'reveal' ? 'reveal' : 'open'
