@@ -350,6 +350,8 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       mono: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12.5 },
       muted: { opacity: 0.65, fontSize: 12.5 },
       button: { border: '1px solid var(--dsh-border, #d8d8d8)', background: 'transparent', borderRadius: 8, padding: '5px 12px', cursor: 'pointer', fontSize: 13 },
+      /* 表格里的「检测」：按最宽的「检测中… + 转圈」定宽，两态同宽，表格列不再被挤得左右弹。 */
+      pingButton: { boxSizing: 'border-box', width: 92, height: 28, padding: 0, border: '1px solid var(--dsh-border, #d8d8d8)', background: 'transparent', borderRadius: 8, cursor: 'pointer', fontSize: 13, textAlign: 'center', whiteSpace: 'nowrap' },
       primary: { border: '1px solid transparent', background: 'var(--dsh-accent, #1f6feb)', color: '#fff', borderRadius: 8, padding: '5px 12px', cursor: 'pointer', fontSize: 13 },
       /** 按钮内「转圈 + 文案」的横向排布。 */
       buttonBusy: { display: 'inline-flex', alignItems: 'center', gap: 5 },
@@ -2769,7 +2771,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
                     }, '进入'),
                     ' ',
                     h('button', {
-                      style: busy === `ping:${peer.id}` ? { ...styles.button, cursor: 'default', opacity: 0.7 } : styles.button,
+                      style: busy === `ping:${peer.id}` ? { ...styles.pingButton, cursor: 'default', opacity: 0.7 } : styles.pingButton,
                       disabled: busy === `ping:${peer.id}`,
                       onClick: () => void checkPeer(peer.id),
                     }, busy === `ping:${peer.id}`
