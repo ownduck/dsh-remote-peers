@@ -5984,25 +5984,36 @@ const markdownLabels = {
             renderStagedAttachments(),
             pendingCommand === null
               ? h('textarea', inputProps(styles.composerInput, '发消息或创建任务'))
-              : h('div', { style: { position: 'relative', width: '100%', minWidth: 0 } },
-                  h('span', {
-                    style: { ...styles.commandToken, width: `${pendingCommand.label.length * 15 + 6}px` },
-                  }, pendingCommand.label),
-                  /* 与原生一致：认领后的提示是 chip 之后的幽灵文本（`p::after`），空草稿才显示；
-                     textarea 的 placeholder 会折行后被单行高度裁掉。 */
-                  promptText === ''
-                    ? h('span', {
-                        'aria-hidden': 'true',
-                        style: { ...styles.commandHint, paddingLeft: `${pendingCommand.label.length * 15 + 16}px` },
-                      }, pendingCommand.hint)
-                    : null,
-                  /* 原生 chip 是正文里的一个内联原子：首行从 chip 右侧起，折行回到正文左边缘。
-                     这里用 text-indent 表达同一件事（首行缩进 = chip 占位，后续行不缩进）。 */
-                  h('textarea', inputProps(
-                    { ...styles.composerInput, width: '100%', textIndent: `${pendingCommand.label.length * 15 + 2}px` },
-                    '',
-                  )),
-                ),
+              : (() => {
+                  /* chip 口径：左内距 10 + 标签 + 4 间距 + X 槽 15 + 右内距 6；正文首行从 chip 右侧 +4 起。 */
+                  const chipWidth = pendingCommand.label.length * 14 + 35
+                  return h('div', { style: { position: 'relative', width: '100%', minWidth: 0 } },
+                    h('span', { 'data-rp-command-chip': '', style: { ...styles.commandToken, width: `${chipWidth}px` }, onClick: () => inputRef.current?.focus() },
+                      pendingCommand.label,
+                      /* hover 才淡入的取消钮：撤掉 chip，正文原位不动（不插空格、不留缩进）。 */
+                      h('button', {
+                        'data-rp-command-cancel': '',
+                        style: styles.commandCancel,
+                        'aria-label': '取消该模式',
+                        onClick: cancelPendingCommand,
+                      }, closeGlyph(10)),
+                    ),
+                    /* 与原生一致：认领后的提示是 chip 之后的幽灵文本（`p::after`），空草稿才显示；
+                       textarea 的 placeholder 会折行后被单行高度裁掉。 */
+                    promptText === ''
+                      ? h('span', {
+                          'aria-hidden': 'true',
+                          style: { ...styles.commandHint, paddingLeft: `${chipWidth + 4}px` },
+                        }, pendingCommand.hint)
+                      : null,
+                    /* 原生 chip 是正文里的一个内联原子：首行从 chip 右侧起，折行回到正文左边缘。
+                       这里用 text-indent 表达同一件事（首行缩进 = chip 占位，后续行不缩进）。 */
+                    h('textarea', inputProps(
+                      { ...styles.composerInput, width: '100%', textIndent: `${chipWidth - 10}px` },
+                      '',
+                    )),
+                  )
+                })(),
             h('div', { style: styles.composerRow },
               h('div', { style: { position: 'relative' } },
                 h('button', {
@@ -6086,6 +6097,12 @@ const markdownLabels = {
         )
       }
 
+      /** 取消已认领的 `/目标` / `/计划`：只撤 chip，草稿正文原位不动（不补空格、不留缩进）。 */
+      function cancelPendingCommand() {
+        setPendingCommand(null)
+        setTimeout(() => inputRef.current?.focus(), 0)
+      }
+
       /**
        * 发送：带待插入指令时拼成完整命令行；附件按 receiptId 一起交给对端（原生同一个 content 数组）。
        * 还在上传或上传失败时先拦住 —— 原生也是「等所有附件就绪才发」。
@@ -6134,14 +6151,12 @@ const markdownLabels = {
                 if (row.key === 'goal') {
                   setPlusOpen(false)
                   setPendingCommand({ label: '/目标', prefix: '/goal ', hint: '输入目标，智能体将持续执行' })
-                  setPromptText('')
                   setTimeout(() => inputRef.current?.focus(), 0)
                   return
                 }
                 if (row.key === 'plan') {
                   setPlusOpen(false)
                   setPendingCommand({ label: '/计划', prefix: '/plan ', hint: '描述你的任务以生成计划' })
-                  setPromptText('')
                   setTimeout(() => inputRef.current?.focus(), 0)
                   return
                 }
