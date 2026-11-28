@@ -107,6 +107,8 @@ export const styles = {
   liveStatusIcon: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 'none', width: 16, height: 16, color: 'inherit' },
   /** 思考折叠行（原生 `ReasoningRow` + `DisclosureRow`：24px 行、16px 图标框、gap 6）。 */
   thinkRoot: { display: 'flex', flexDirection: 'column', minWidth: 0 },
+  /* 运行状态上方那道 0.5px 细线（原生 `.runningDivider`：上距 -4、混合 border-l1/l2）。 */
+  thinkDivider: { flex: 'none', height: 0.5, marginTop: -4, marginBottom: 4, background: 'color-mix(in srgb, var(--dsw-alias-border-l1, #e8e9eb) 75%, var(--dsw-alias-border-l2, #e3e4e6))' },
   thinkRow: { display: 'flex', alignItems: 'center', width: '100%', height: 24, minWidth: 0, overflow: 'hidden', padding: 0, border: 'none', background: 'transparent', color: 'var(--dsw-alias-label-tertiary, #8a8f98)', fontFamily: 'inherit', fontSize: 'inherit', textAlign: 'left', cursor: 'pointer' },
   thinkLeading: { position: 'relative', flex: 'none', width: 16, height: 16, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginRight: 6, color: 'inherit' },
   thinkIconIdle: { display: 'inline-flex', transition: 'opacity 100ms ease' },

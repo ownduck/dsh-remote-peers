@@ -2559,10 +2559,12 @@ const markdownLabels = {
       function renderLiveReasoningRow() {
         const text = reasoningDisplayText(liveReasoning)
         const running = liveText === ''
-        // 本轮还在跑、正文还没开始流：这一拍没有推理文本也要留着「正在思考，用时 N ···」这行
-        // （原生 RunningStatus 就是轮次未结束时一直挂着，只有轮次收尾的尾部动作行会顶掉它）。
-        const active = turnStartedAt !== 0 && running
-        if (text.trim() === '' && !active) return null
+        // 跟随原生 RunningStatus：本轮还在跑就一直挂着这一行（不管这一拍有没有推理文本、正文是否在流）；
+        // 轮次收尾由尾部动作行顶掉。轮次结束且没有推理正文时才整行消失。
+        const active = turnStartedAt !== 0
+        if (!active && text.trim() === '') return null
+        // 原生 `.runningDivider`：上一行是输出（工具/正文/推理）时才画那道 0.5px 细线；紧接用户输入不画。
+        const divider = active && (text.trim() !== '' || liveText !== '' || pendingToolOf() !== null)
         const expandable = text.trim() !== ''
         const summary = (running ? latestParagraphFirstLine(text) : firstLineOfText(text)).replaceAll('**', '')
         const open = expandable && liveReasoningOpen
@@ -2607,7 +2609,11 @@ const markdownLabels = {
                     ...markdownResolvers(messages.length === 0 ? undefined : messages[messages.length - 1].turn),
                   })))
           : null
-        return h('div', { key: 'think', style: styles.thinkRoot }, row, body)
+        return h('div', { key: 'think', style: styles.thinkRoot },
+          divider ? h('span', { key: 'divider', style: styles.thinkDivider, 'aria-hidden': 'true' }) : null,
+          row,
+          body,
+        )
       }
 
       /** 文字 shimmer：底稿始终可读，扫过的那层是 aria-hidden 的遮罩副本。 */
@@ -3509,7 +3515,6 @@ const markdownLabels = {
                         ? null
                         : h('div', { style: styles.liveFlow },
                             renderLiveProcessRow(),
-                            renderLiveReasoningRow(),
                             liveText === ''
                               ? null
                               : h('div', { style: styles.assistantBlock },
@@ -3517,6 +3522,7 @@ const markdownLabels = {
                                     ? renderRichText(liveText)
                                     : wrapMarkdownDelegate(h(hostMarkdown, { text: String(liveText ?? ''), labels: markdownLabels, streaming: true, ...markdownResolvers(messages.length === 0 ? undefined : messages[messages.length - 1].turn) })),
                                 ),
+                            renderLiveReasoningRow(),
                           ),
                     ),
                   ),
