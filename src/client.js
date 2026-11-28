@@ -3530,7 +3530,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
           }, backArrowGlyph(16), h('span', null, '返回远程端列表')),
           h('div', null,
             h('h2', { style: styles.peerTitle }, peer.name || `${peer.host}:${peer.port}`),
-            h('div', { style: styles.muted }, `${peer.host}:${peer.port} · 该端的全部会话`)),
+            h('div', { style: styles.muted }, `${peer.host}:${peer.port}`)),
         )
       }
 
@@ -3648,7 +3648,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
               },
             }, slidersGlyph()),
           ),
-          h('div', { style: styles.muted }, `${peerNameOf(activePeer)} · ${groupMode === 'workspace' ? '工作区 → 会话' : groupMode === 'tree' ? '工作区目录树' : '单列表'} · 最近更新`),
+          h('div', { style: styles.muted }, `${peerNameOf(activePeer)} · ${groupMode === 'workspace' ? '工作区 → 会话' : groupMode === 'tree' ? '工作区目录树' : '单列表'}`),
           interactions.length === 0 ? null : h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 4 } },
             interactions.map((item) => h('div', { key: item.eventId, style: { ...styles.card, background: 'var(--dsh-surface-weak, #fafafa)' } },
               h('div', { style: styles.row },
