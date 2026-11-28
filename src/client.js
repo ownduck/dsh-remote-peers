@@ -5919,8 +5919,9 @@ const markdownLabels = {
         return () => { observer.disconnect(); cancelAnimationFrame(frame); clearTimeout(timer); clearTimeout(lateTimer) }
       }, [pendingCommand, openSession, promptText, chipLabelWidth])
 
-      /* 打开会话就把光标放进输入框（原生打开会话即可直接打字），光标落在草稿末尾。
-         视图与快照是分几步上屏的，聚焦要补几拍；只要用户已经在别处操作（焦点不在 body）就不再抢。 */
+      /* 打开会话就把光标放进输入框（原生 InputBar 的 `[locked, sessionId, editor]` 效果：换会话即聚焦，
+         不看焦点原来在哪 —— 点会话行时焦点还留在侧栏那颗按钮上，所以这里不能再加「焦点不在 body 就跳过」的门槛）。
+         视图与快照分几步上屏，聚焦要补几拍；拿到就不再抢。 */
       useEffect(() => {
         if (openSession === null) return
         const timers = []
@@ -5929,8 +5930,6 @@ const markdownLabels = {
           if (done) return
           const node = visibleComposerNode()
           if (node === null) return
-          const active = document.activeElement
-          if (active !== null && active !== document.body) return
           /* 草稿是切回来才灌进来的：聚焦前先按内容重量一次，别带着上一次的高度露出。 */
           growComposer(node)
           node.focus({ preventScroll: true })
