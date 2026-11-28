@@ -5872,6 +5872,15 @@ const markdownLabels = {
         element.style.height = `${Math.min(element.scrollHeight, 336)}px`
       }
 
+      /** 当前真正上屏的那个输入框：多视图共存时 ref 可能落在被隐藏的那一份上。 */
+      function visibleComposerNode() {
+        if (typeof document === 'undefined') return inputRef.current
+        for (const node of document.querySelectorAll('.rp-composer-input')) {
+          if (node.getClientRects().length > 0) return node
+        }
+        return inputRef.current
+      }
+
       /* 认领/取消 chip 会换掉 textarea 节点，新节点高度回到 min-height，草稿被裁在一行半里。
          所以在提交前（layout 阶段）就按当前内容量高，并盯住宽度变化（窗口缩放、附件行、
          chip 宽度变化都会改可用宽度，需要重新折行量高）。 */
@@ -5910,18 +5919,26 @@ const markdownLabels = {
         return () => { observer.disconnect(); cancelAnimationFrame(frame); clearTimeout(timer); clearTimeout(lateTimer) }
       }, [pendingCommand, openSession, promptText, chipLabelWidth])
 
-      /* 打开会话就把光标放进输入框（原生打开会话即可直接打字），光标落在草稿末尾。 */
+      /* 打开会话就把光标放进输入框（原生打开会话即可直接打字），光标落在草稿末尾。
+         视图与快照是分几步上屏的，聚焦要补几拍；只要用户已经在别处操作（焦点不在 body）就不再抢。 */
       useEffect(() => {
         if (openSession === null) return
-        const timer = setTimeout(() => {
-          const node = inputRef.current
+        const timers = []
+        let done = false
+        const attempt = () => {
+          if (done) return
+          const node = visibleComposerNode()
           if (node === null) return
+          const active = document.activeElement
+          if (active !== null && active !== document.body) return
           /* 草稿是切回来才灌进来的：聚焦前先按内容重量一次，别带着上一次的高度露出。 */
           growComposer(node)
-          node.focus()
+          node.focus({ preventScroll: true })
           node.setSelectionRange(node.value.length, node.value.length)
-        }, 0)
-        return () => clearTimeout(timer)
+          done = document.activeElement === node
+        }
+        for (const delay of [0, 80, 240, 600]) timers.push(setTimeout(attempt, delay))
+        return () => { for (const timer of timers) clearTimeout(timer) }
       }, [openSession, activePeer])
 
       /* 目录没取到过就补一次：权限 chip 只在拿到目录后才有档位可显示（原生同样依赖目录）。 */
