@@ -5902,7 +5902,12 @@ const markdownLabels = {
           growComposer(node)
         })
         observer.observe(node)
-        return () => observer.disconnect()
+        /* 切回会话时这一帧的父容器可能还没真正上屏（量出来是旧高度/0），补两拍重量一次。 */
+        const again = () => { if (inputRef.current !== null) growComposer(inputRef.current) }
+        const frame = requestAnimationFrame(again)
+        const timer = setTimeout(again, 120)
+        const lateTimer = setTimeout(again, 420)
+        return () => { observer.disconnect(); cancelAnimationFrame(frame); clearTimeout(timer); clearTimeout(lateTimer) }
       }, [pendingCommand, openSession, promptText, chipLabelWidth])
 
       /* 打开会话就把光标放进输入框（原生打开会话即可直接打字），光标落在草稿末尾。 */
@@ -5911,6 +5916,8 @@ const markdownLabels = {
         const timer = setTimeout(() => {
           const node = inputRef.current
           if (node === null) return
+          /* 草稿是切回来才灌进来的：聚焦前先按内容重量一次，别带着上一次的高度露出。 */
+          growComposer(node)
           node.focus()
           node.setSelectionRange(node.value.length, node.value.length)
         }, 0)
@@ -6054,6 +6061,8 @@ const markdownLabels = {
         const inputProps = (style, placeholder) => ({
           ref: inputRef, className: 'rp-composer-input', style, rows: 1, value: promptText, placeholder,
           onChange: (event) => { setPromptText(event.target.value); growComposer(event.target) },
+          /* 聚焦时按当前内容重量（切回会话、草稿被灌进来之后才拿得到真实 scrollHeight）。 */
+          onFocus: (event) => growComposer(event.currentTarget),
           /* 粘贴带文件就收下来（原生 PASTE_COMMAND：先吃附件，只有纯文本才走默认粘贴）。 */
           onPaste: (event) => { takePaste(event) },
           onKeyDown: (event) => {
