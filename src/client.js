@@ -5893,6 +5893,18 @@ const markdownLabels = {
         return () => observer.disconnect()
       }, [pendingCommand, openSession, promptText])
 
+      /* 打开会话就把光标放进输入框（原生打开会话即可直接打字），光标落在草稿末尾。 */
+      useEffect(() => {
+        if (openSession === null) return
+        const timer = setTimeout(() => {
+          const node = inputRef.current
+          if (node === null) return
+          node.focus()
+          node.setSelectionRange(node.value.length, node.value.length)
+        }, 0)
+        return () => clearTimeout(timer)
+      }, [openSession, activePeer])
+
       /**
        * 待发附件 —— 图片在原生 `ComposerAttachments.rail` 里是 64×64 缩略图；
        * 其余文件按原生 `ReferenceChip` 的口径排在下面一行蓝字 chip 里（不是文件卡）。
