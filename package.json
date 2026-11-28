@@ -1,7 +1,7 @@
 {
   "name": "dsh-remote-peers",
   "description": "DeepSeek Harness plugin: peer with another DSH over LAN — token-gated gateway plus a remote-sessions panel",
-  "version": "0.3.78",
+  "version": "0.3.79",
   "type": "module",
   "main": "./index.mjs",
   "exports": {

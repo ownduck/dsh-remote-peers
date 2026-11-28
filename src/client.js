@@ -134,6 +134,29 @@ const PROCESS_ROW_ICONS = {
       }, [active])
     }
 
+    /**
+     * 浮层关闭（原生 `useDismissOnOutsidePointer` 口径）：捕获阶段听 `pointerdown`，
+     * 点在锚点（`[data-rp-anchor]`）或浮层自身（`[data-dsh-popup]`）里就不关。
+     * 这样点了别的面包屑、行、按钮都会关掉，不像 `click` 那样被 `stopPropagation` 挡掉。
+     */
+    function useDismissOutside(active, close) {
+      useEffect(() => {
+        if (!active) return
+        const onKeyDown = (event) => { if (event.key === 'Escape') close() }
+        const onPointerDown = (event) => {
+          const target = event.target
+          if (target instanceof Element && (target.closest('[data-rp-anchor]') !== null || target.closest('[data-dsh-popup]') !== null)) return
+          close()
+        }
+        window.addEventListener('pointerdown', onPointerDown, true)
+        window.addEventListener('keydown', onKeyDown)
+        return () => {
+          window.removeEventListener('pointerdown', onPointerDown, true)
+          window.removeEventListener('keydown', onKeyDown)
+        }
+      }, [active])
+    }
+
     /** 宿主共享的 Markdown 渲染器与文件类型图标：能取到就复用原生实现。 */
     let hostPrimitives = null
     try {
@@ -1637,7 +1660,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
 
       /** 浮层（卡片 caret 菜单、「本轮用量」、「底部统计」）点空白或按 Esc 关闭。 */
       useDismiss(pathMenu !== null, () => setPathMenu(null))
-      useDismiss(wsMenu !== null, () => setWsMenu(null))
+      useDismissOutside(wsMenu !== null, () => setWsMenu(null))
       useDismiss(viewMenu !== null, () => setViewMenu(null))
       useDismiss(usageDialog !== null, () => setUsageDialog(null))
       useDismiss(statDialog !== null, () => setStatDialog(null))
@@ -3266,6 +3289,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
                     key: 'menu',
                     type: 'button',
                     'aria-label': '更多',
+                    'data-rp-anchor': '',
                     style: styles.sessionTreeAction,
                     onMouseEnter: (event) => {
                       event.currentTarget.style.color = 'var(--dsw-alias-label-primary, inherit)'
@@ -3276,11 +3300,15 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
                       hideHint(`menu:${key}`)
                     },
                     onClick: (event) => {
-                      // 别冒泡到行本身（那会折叠/展开），也别让 window 的空点立刻关掉刚开的菜单
+                      // 别冒泡到行本身（那会折叠/展开）
                       event.stopPropagation()
                       hideHint(`menu:${key}`)
+                      if (wsMenu !== null && wsMenu.workspaceId === workspaceId) {
+                        setWsMenu(null)
+                        return
+                      }
                       const rect = event.currentTarget.getBoundingClientRect()
-                      setWsMenu({ workspaceId, title: label, top: rect.bottom + 4, left: rect.left })
+                      setWsMenu({ workspaceId, title: label, top: clampMenuTop(rect), left: clampMenuLeft(rect.left) })
                     },
                   }, h('span', { style: { fontSize: 15, lineHeight: 1, letterSpacing: 1 } }, '⋯')),
                   h('button', {
@@ -3875,13 +3903,18 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
                     key: 'crumb-workspace',
                     type: 'button',
                     style: styles.crumbButton,
+                    'data-rp-anchor': '',
                     'aria-label': `工作区 ${workspaceCrumb.title}`,
                     onMouseEnter: (event) => { event.currentTarget.style.background = 'var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.04))' },
                     onMouseLeave: (event) => { event.currentTarget.style.background = 'transparent' },
                     onClick: (event) => {
                       event.stopPropagation()
+                      if (wsMenu !== null && wsMenu.workspaceId === workspaceCrumb.workspaceId) {
+                        setWsMenu(null)
+                        return
+                      }
                       const rect = event.currentTarget.getBoundingClientRect()
-                      setWsMenu({ workspaceId: workspaceCrumb.workspaceId, title: workspaceCrumb.title, top: rect.bottom + 4, left: rect.left })
+                      setWsMenu({ workspaceId: workspaceCrumb.workspaceId, title: workspaceCrumb.title, top: clampMenuTop(rect), left: clampMenuLeft(rect.left) })
                     },
                   },
                     h('span', { style: styles.crumbLabel }, workspaceCrumb.title),
@@ -4075,6 +4108,20 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
             h('span', { style: { flex: 1, minWidth: 0 } }, opening ? '正在打开…' : '显示文件位置'),
           ),
         )
+      }
+
+      /** 菜单水平落点：贴锚点左缘，但右缘不许越出视口（原生 `position-try --dsh-menu-wide-below` 的夹紧效果）。 */
+      function clampMenuLeft(anchorLeft) {
+        const estimate = 176
+        return Math.max(12, Math.min(anchorLeft, globalThis.innerWidth - estimate - 12))
+      }
+
+      /** 菜单纵向落点：贴锚点下缘 4px；下面放不下就翻到锚点上方（原生 `--dsh-menu-above`）。 */
+      function clampMenuTop(rect) {
+        const below = rect.bottom + 4
+        const height = 52
+        if (below + height <= globalThis.innerHeight - 12) return below
+        return Math.max(12, rect.top - 4 - height)
       }
 
       /** 工作区行的 ⋯ 菜单：目前只有「重命名」（原生同一菜单里的「在文件夹显示」「删除工作区」未接）。 */
