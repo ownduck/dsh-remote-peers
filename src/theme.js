@@ -587,6 +587,23 @@ scrollbarGutter: 'stable',
     color: T.pri,
     caretColor: 'var(--dsw-alias-state-business-primary, #1f6feb)',
   },
+  /* 认领命令后的幽灵提示：原生 `.input p::after`（caption 色、跟随 chip 同一行） */
+  commandHint: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    boxSizing: 'border-box',
+    padding: '4px 8px 0 0',
+    fontFamily: 'var(--dsw-font-family, inherit)',
+    fontSize: 14,
+    lineHeight: '24px',
+    color: 'var(--dsw-alias-label-caption, #ADB2B8)',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    pointerEvents: 'none',
+  },
   /* 工具行：2px 8px 6px、12px 间距（attach / modes / trailing 同源间距） */
   composerRow: { display: 'flex', alignItems: 'center', gap: 12, padding: '2px 8px 6px', minWidth: 0 },
   /* 卡片顶边零高覆盖锚点：菜单以卡片整宽为基准（同 InputBar .overlayAnchor） */

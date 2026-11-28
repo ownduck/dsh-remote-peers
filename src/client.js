@@ -5985,9 +5985,17 @@ const markdownLabels = {
                   h('span', {
                     style: { ...styles.commandToken, width: `${pendingCommand.label.length * 15 + 6}px` },
                   }, pendingCommand.label),
+                  /* 与原生一致：认领后的提示是 chip 之后的幽灵文本（`p::after`），空草稿才显示；
+                     textarea 的 placeholder 会折行后被单行高度裁掉。 */
+                  promptText === ''
+                    ? h('span', {
+                        'aria-hidden': 'true',
+                        style: { ...styles.commandHint, paddingLeft: `${pendingCommand.label.length * 15 + 16}px` },
+                      }, pendingCommand.hint)
+                    : null,
                   h('textarea', inputProps(
                     { ...styles.composerInput, paddingLeft: `${pendingCommand.label.length * 15 + 16}px` },
-                    pendingCommand.hint,
+                    '',
                   )),
                 ),
             h('div', { style: styles.composerRow },
@@ -6120,7 +6128,7 @@ const markdownLabels = {
                 if (row.key === 'file') { setPlusOpen(false); fileInputRef.current?.click(); return }
                 if (row.key === 'goal') {
                   setPlusOpen(false)
-                  setPendingCommand({ label: '/目标', prefix: '/goal ', hint: '输入目标，智能体将持续执行…' })
+                  setPendingCommand({ label: '/目标', prefix: '/goal ', hint: '输入目标，智能体将持续执行' })
                   setPromptText('')
                   setTimeout(() => inputRef.current?.focus(), 0)
                   return
