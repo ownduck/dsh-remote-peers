@@ -2336,7 +2336,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
           const result = await call('proxy', {
             id: activePeer,
             method: 'session/create',
-            payload: { args: { workspaceId } },
+            payload: { args: { request: { workspaceId } } },
           })
           const envelope = envelopeOf(result, '节点没能新建会话')
           const sessionId = String(envelope.value?.sessionId ?? '')
@@ -2376,7 +2376,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
           const result = await call('proxy', {
             id: activePeer,
             method: 'workspace/rename',
-            payload: { args: { workspaceId: renameAsk.workspaceId, title } },
+            payload: { args: { request: { workspaceId: renameAsk.workspaceId, title } } },
           })
           const envelope = envelopeOf(result, '节点没能重命名工作区')
           const workspace = envelope.value?.workspace
