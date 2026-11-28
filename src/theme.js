@@ -25,7 +25,7 @@ export const SCROLL_SKIN = [
   /* 会话树行：hover 全部交给 CSS（原生就是 `:hover`）。行在指针底下被移除/插入时，浏览器会把 hover
      直接交给现在占位的行；用 React 的 hover 状态则收不到 mouseenter（鼠标没动），会出现「上面一行
      被归档后消失，下一行不亮而浮在里层的按钮还在」的错位。 */
-  '[data-rp-row="session"]:hover, [data-rp-row="folder"][data-rp-open="true"] { background: var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.04)); }',
+  '[data-rp-row="session"]:hover, [data-rp-row="folder"][data-rp-open="true"], [data-rp-row="session"][data-rp-open="true"] { background: var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.04)); }',
   '[data-rp-row] [data-rp-actions] { display: none; }',
   '[data-rp-row] [data-rp-resting] { display: inline-flex; }',
   '[data-rp-row]:hover [data-rp-actions], [data-rp-row][data-rp-open="true"] [data-rp-actions] { display: inline-flex; }',
@@ -141,6 +141,14 @@ export const styles = {
   /* 置顶行的常驻标记：原生 `.pinIndicator` —— 16×20 居中、左 6、label-caption，不可点 */
   sessionTreePin: { flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 16, height: 20, marginLeft: 6, color: 'var(--dsw-alias-label-caption, #ADB2B8)' },
   sessionTreeTime: { flex: 'none', fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-label-tertiary, #a6a9ae)' },
+  /* 行内「⋯」字形：原生用的是 16px 图标，这里用等大的省略号字符版 */
+  sessionTreeEllipsis: { fontSize: 15, lineHeight: 1, letterSpacing: 1 },
+  /* 会话水位溢出钮：原生 `.sessionOverflowButton` —— 28 高、12 号 tertiary 文字、无底色、左对齐 */
+  sessionOverflow: {
+    width: '100%', height: 28, border: 'none', borderRadius: 6, background: 'transparent',
+    textAlign: 'left', cursor: 'pointer', fontSize: 12, lineHeight: '28px',
+    color: 'var(--dsw-alias-label-tertiary, #a6a9ae)',
+  },
   /* 文件夹行右侧的新会话钮：原生 `.iconButton` —— 24×24 命中区（margin -4 压回 16）、14 图标、`label-tertiary`，hover 转 `label-primary` */
   sessionTreeAction: { flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, margin: -4, padding: 0, border: 0, borderRadius: 'var(--dsw-radius-xs, 4px)', background: 'transparent', color: 'var(--dsw-alias-label-tertiary, #a6a9ae)', cursor: 'pointer' },
   /* 工作区行/会话行 hover 时的动作列：原生 `.rowActions` —— 20 高、gap 13（两枚 -4 外边距的 24 钮叠出 ~5px 视觉间距）；display 交给 CSS 的 `[data-rp-actions]` */

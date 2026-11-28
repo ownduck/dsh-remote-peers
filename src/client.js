@@ -34,6 +34,8 @@ const PROCESS_ROW_ICONS = {
      * 实现笔记与代码注释仍沿用「对端 / 他端」这两个技术代称，不进界面。
      */
     const PEER_NOUN = '节点'
+    /** 一个工作区默认露出的会话行数，其余折在「展开其余 N 个会话」一行里（原生 `SESSION_WATERMARK_BASE`）。 */
+    const SESSION_WATERMARK_BASE = 5
     /** 刚点过取消的本地 key → 时间戳：Host 清理有延迟，这段时间内不把任务贴回来。 */
     const CANCELLING = new Map()
     /** `<peerId>:<对端路径>` → 本机是否已有副本（「显示文件位置」据此决定是否可点、要不要置灰）。 */
@@ -354,8 +356,14 @@ const markdownLabels = {
       const [creatingIn, setCreatingIn] = useState('')
       /** 打开的工作区 ⋯ 菜单：`{ workspaceId, title, top, left }`，null 表示关着。 */
       const [wsMenu, setWsMenu] = useState(null)
+      /** 打开的会话行 ⋯ 菜单：`{ sessionId, title, top, left }`，null 表示关着。 */
+      const [sessionMenu, setSessionMenu] = useState(null)
+      /** 各工作区的会话水位：`{ [groupKey]: 露出条数 }`；缺省按 `SESSION_WATERMARK_BASE`，`Infinity` 表示全展开。 */
+      const [sessionMarks, setSessionMarks] = useState({})
       /** 重命名工作区对话框：`{ workspaceId, title }`（title 是确认时的基线，不是草稿）。 */
       const [renameAsk, setRenameAsk] = useState(null)
+      /** 重命名会话对话框：`{ sessionId, title }`（与工作区共用草稿/忙碌/错误三个状态）。 */
+      const [sessionRenameAsk, setSessionRenameAsk] = useState(null)
       const [renameDraft, setRenameDraft] = useState('')
       const [renaming, setRenaming] = useState(false)
       const [renameError, setRenameError] = useState('')
@@ -945,6 +953,7 @@ const markdownLabels = {
       /** 浮层（卡片 caret 菜单、「本轮用量」、「底部统计」）点空白或按 Esc 关闭。 */
       useDismiss(pathMenu !== null, () => setPathMenu(null))
       useDismissOutside(wsMenu !== null, () => setWsMenu(null))
+      useDismissOutside(sessionMenu !== null, () => setSessionMenu(null))
       useDismissOutside(viewMenu !== null, () => setViewMenu(null))
       useDismissOutside(usageDialog !== null, () => setUsageDialog(null))
       useDismissOutside(statDialog !== null, () => setStatDialog(null))
@@ -1538,6 +1547,60 @@ const markdownLabels = {
           setRenaming(false)
         }
       }, [activePeer, call, renameAsk, renameDraft, renaming])
+
+      /** 打开重命名会话对话框：草稿预填当前标题（原生 `rename.session.title` 那道 Modal）。 */
+      const openSessionRename = useCallback((sessionId, title) => {
+        setSessionMenu(null)
+        setSessionRenameAsk({ sessionId, title })
+        setRenameDraft(title)
+        setRenameError('')
+      }, [])
+
+      const closeSessionRename = useCallback(() => {
+        if (renaming) return
+        setSessionRenameAsk(null)
+        setRenameDraft('')
+        setRenameError('')
+      }, [renaming])
+
+      /** 提交会话重命名：`session/rename` 只改标题，成功后就地替换列表里那一行。 */
+      const confirmSessionRename = useCallback(async () => {
+        if (sessionRenameAsk === null || renaming) return
+        const title = renameDraft.trim()
+        if (title === '' || title === sessionRenameAsk.title) return
+        setRenaming(true)
+        setRenameError('')
+        try {
+          const result = await call('proxy', {
+            id: activePeer,
+            method: 'session/rename',
+            payload: { args: { request: { sessionId: sessionRenameAsk.sessionId, title } } },
+          })
+          envelopeOf(result, '节点没能重命名会话')
+          setSessions((previous) => previous.map((item) => (
+            String(item.sessionId) === String(sessionRenameAsk.sessionId) ? { ...item, title } : item
+          )))
+          setSessionRenameAsk(null)
+          setRenameDraft('')
+        } catch (failure) {
+          setRenameError(errorText(failure))
+        } finally {
+          setRenaming(false)
+        }
+      }, [activePeer, call, renameDraft, renaming, sessionRenameAsk])
+
+      /** 复制会话 ID（原生 `menu.sessionId`）：剪贴板写失败按复制失败回执。 */
+      const copySessionIdText = useCallback((sessionId) => {
+        const text = String(sessionId)
+        if (typeof navigator?.clipboard?.writeText !== 'function') {
+          notice('复制失败，请重试', false)
+          return
+        }
+        navigator.clipboard.writeText(text).then(
+          () => notice('Session ID 已复制', true),
+          () => notice('复制失败，请重试', false),
+        )
+      }, [notice])
 
       /**
        * 会话两种集合状态的切换（原生 `PinSession.tsx` / `ArchiveSession.tsx` 的按钮行为）：
@@ -2182,7 +2245,9 @@ const markdownLabels = {
         activePeer === '' || isFocused === false ? null : renderRemoteSessions(),
         renderViewMenu(),
         wsMenu === null ? null : renderWorkspaceMenu(),
+        sessionMenu === null ? null : renderSessionMenu(),
         renameAsk === null ? null : renderRenameDialog(),
+        sessionRenameAsk === null ? null : renderSessionRenameDialog(),
         iconHint === null ? null : renderIconHint(),
       )
 
@@ -2477,9 +2542,10 @@ const markdownLabels = {
                         return
                       }
                       const rect = event.currentTarget.getBoundingClientRect()
+                      setSessionMenu(null)
                       setWsMenu({ workspaceId, title: label, top: clampMenuTop(rect), left: clampMenuLeft(rect.left) })
                     },
-                  }, h('span', { style: { fontSize: 15, lineHeight: 1, letterSpacing: 1 } }, '⋯')),
+                  }, h('span', { style: styles.sessionTreeEllipsis }, '⋯')),
                   h('button', {
                     key: 'new',
                     type: 'button',
@@ -2519,15 +2585,17 @@ const markdownLabels = {
       }
 
       /**
-       * 会话行：常态右侧是「相对时间 +（置顶时的）静态图钉」，hover 换成「归档 + 置顶」两枚图标钮
-       * —— 原生 `.rowResting`/`.rowActions` 的互换（`PinnedIndicator` 不可点、`pinIndicator` 16×20 左 6）。
+       * 会话行：常态右侧是「相对时间 +（置顶时的）静态图钉」，hover 换成「⋯ + 归档 + 置顶」三枚图标钮
+       * —— 原生 `rowActions`（`contextMenu.button` 在前，`rowQuickActions` 里归档再置顶）。
        * 已归档行留在原位、不带前导标记、只把标题降一档灰；置顶钮在归档行不渲染（`PinSession` 的 `if (archived) return null`）。
        * 两侧同时挂在 DOM 里，由 CSS `:hover` 决定谁显示 —— 行被移除后浏览器会把 hover 交给下一行。
+       * 标题双击进重命名（原生 `SessionNodeItem` 的 `renameArmed` + `onDoubleClick`）。
        */
       function renderTreeSession(session, depth) {
         const key = `s:${session.sessionId}`
         const pinned = pinnedIds.map(String).includes(String(session.sessionId))
         const archived = archivedIds.map(String).includes(String(session.sessionId))
+        const menuOpen = sessionMenu !== null && String(sessionMenu.sessionId) === String(session.sessionId)
         const iconButton = (id, label, glyph, onClick) => h('button', {
           key: id,
           type: 'button',
@@ -2544,17 +2612,37 @@ const markdownLabels = {
           onClick: (event) => {
             event.stopPropagation()
             hideHint(`${id}:${key}`)
-            onClick()
+            onClick(event)
           },
         }, glyph)
         const actions = h('div', { key: 'actions', style: styles.sessionTreeActions, 'data-rp-actions': '' },
+          iconButton('menu', '更多', h('span', { style: styles.sessionTreeEllipsis }, '⋯'), (event) => {
+            if (menuOpen) {
+              setSessionMenu(null)
+              return
+            }
+            const rect = event.currentTarget.getBoundingClientRect()
+            setSessionMenu({
+              sessionId: session.sessionId,
+              title: sessionTitle(session),
+              top: clampMenuTop(rect, 168),
+              left: clampMenuLeft(rect.left),
+            })
+          }),
           iconButton('archive', archived ? '取消归档' : '归档会话', archiveGlyph(14),
             () => void toggleSessionFlag(archived ? 'workspace/unarchiveSession' : 'workspace/archiveSession', 'archivedSessionIds', session.sessionId)),
           archived ? null : iconButton('pin', pinned ? '取消置顶' : '置顶会话', pinGlyph(14, pinned),
             () => void toggleSessionFlag(pinned ? 'workspace/unpinSession' : 'workspace/pinSession', 'pinnedSessionIds', session.sessionId)))
         return treeRowShell(key, depth,
           [
-            h('span', { key: 'label', style: archived ? { ...styles.sessionTreeLabel, ...styles.sessionTreeLabelArchived } : styles.sessionTreeLabel }, sessionTitle(session)),
+            h('span', {
+              key: 'label',
+              style: archived ? { ...styles.sessionTreeLabel, ...styles.sessionTreeLabelArchived } : styles.sessionTreeLabel,
+              onDoubleClick: (event) => {
+                event.stopPropagation()
+                openSessionRename(session.sessionId, sessionTitle(session))
+              },
+            }, sessionTitle(session)),
             actions,
             h('span', { key: 'resting', style: styles.sessionTreeResting, 'data-rp-resting': '' },
               h('span', { key: 'time', style: styles.sessionTreeTime }, relativeTimeText(session.updatedAt)),
@@ -2564,7 +2652,7 @@ const markdownLabels = {
           ],
           () => void openRemoteSession(activePeer, session.sessionId),
           `${sessionTitle(session)} · ${session.sessionId} · ${session.cwd ?? ''}`,
-          { 'data-rp-row': 'session' },
+          menuOpen ? { 'data-rp-row': 'session', 'data-rp-open': 'true' } : { 'data-rp-row': 'session' },
         )
       }
 
@@ -2657,10 +2745,33 @@ const markdownLabels = {
         return { groups, orphans }
       }
 
-      /** 工作区行，展开时再挂上它的会话行。 */
+      /** 工作区行，展开时再挂上它的会话行。超过水位（原生 `SESSION_WATERMARK_BASE = 5`）折成一行「展开其余 N 个会话」。 */
       function folderRows(group, depth, open) {
         const rows = [renderTreeFolder(group.key, depth, group.title, group.workspaceId)]
-        if (open) for (const session of group.rows) rows.push(renderTreeSession(session, depth + 1))
+        if (!open) return rows
+        const limit = sessionMarks[group.key] ?? SESSION_WATERMARK_BASE
+        const shown = group.rows.length > limit ? group.rows.slice(0, limit) : group.rows
+        for (const session of shown) rows.push(renderTreeSession(session, depth + 1))
+        if (group.rows.length <= SESSION_WATERMARK_BASE) return rows
+        const expanded = shown.length === group.rows.length
+        rows.push(h('button', {
+          key: `overflow:${group.key}`,
+          type: 'button',
+          style: { ...styles.sessionOverflow, paddingLeft: 8 + (depth + 1) * 16 + 22 },
+          'data-row-key': `overflow:${group.key}`,
+          'aria-expanded': expanded,
+          onMouseEnter: (event) => { event.currentTarget.style.color = 'var(--dsw-alias-label-secondary, #6f7377)' },
+          onMouseLeave: (event) => { event.currentTarget.style.color = 'var(--dsw-alias-label-tertiary, #a6a9ae)' },
+          onClick: () => setSessionMarks((previous) => {
+            if (expanded) {
+              const next = { ...previous }
+              delete next[group.key]
+              return next
+            }
+            const remaining = group.rows.length - limit
+            return { ...previous, [group.key]: remaining <= SESSION_WATERMARK_BASE ? Number.POSITIVE_INFINITY : limit + SESSION_WATERMARK_BASE }
+          }),
+        }, expanded ? '收起' : `展开其余 ${group.rows.length - shown.length} 个会话`))
         return rows
       }
 
@@ -2727,6 +2838,7 @@ const markdownLabels = {
         closeEvents()
         closeWorkspaceStream()
         setActivePeer('')
+        setSessionMenu(null)
         setSessions([])
         setOpenSession(null)
         setSessionQuery('')
@@ -3142,6 +3254,7 @@ const markdownLabels = {
                         return
                       }
                       const rect = event.currentTarget.getBoundingClientRect()
+                      setSessionMenu(null)
                       setWsMenu({ workspaceId: workspaceCrumb.workspaceId, title: workspaceCrumb.title, top: clampMenuTop(rect), left: clampMenuLeft(rect.left) })
                     },
                   },
@@ -3212,7 +3325,9 @@ const markdownLabels = {
           renderPermissionDialog(),
           pathMenu === null ? null : renderPathMenu(),
           wsMenu === null ? null : renderWorkspaceMenu(),
+          sessionMenu === null ? null : renderSessionMenu(),
           renameAsk === null ? null : renderRenameDialog(),
+          sessionRenameAsk === null ? null : renderSessionRenameDialog(),
           tooltip === null ? null : h('div', { style: { ...styles.tooltipBox, top: tooltip.top, left: tooltip.centerX } }, tooltip.text),
           iconHint === null ? null : renderIconHint(),
           usageDialog === null ? null : renderUsageDialog(),
@@ -3342,11 +3457,29 @@ const markdownLabels = {
       }
 
       /** 菜单纵向落点：贴锚点下缘 4px；下面放不下就翻到锚点上方（原生 `--dsh-menu-above`）。 */
-      function clampMenuTop(rect) {
+      function clampMenuTop(rect, height = 52) {
         const below = rect.bottom + 4
-        const height = 52
         if (below + height <= globalThis.innerHeight - 12) return below
         return Math.max(12, rect.top - 4 - height)
+      }
+
+      /** 工作区行的 ⋯ 菜单：目前只有「重命名」（原生同一菜单里的「在文件夹显示」「删除工作区」未接）。 */
+      /** 浮层菜单里的一个条目：图标 + 文案，hover 走原生 `Menu` 的 hover 底色。 */
+      function menuItem(id, label, glyph, run, separated) {
+        return [
+          separated === true ? h('div', { key: `sep:${id}`, style: styles.viewMenuDivider }) : null,
+          h('button', {
+            key: id,
+            type: 'button',
+            style: styles.pathMenuItem,
+            onClick: run,
+            onMouseEnter: (event) => { event.currentTarget.style.background = 'var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.04))' },
+            onMouseLeave: (event) => { event.currentTarget.style.background = 'transparent' },
+          },
+            h('span', { style: { ...styles.menuIconSlot, color: 'var(--dsw-alias-menu-icon, #6f7377)' } }, glyph),
+            h('span', { style: { flex: 1, minWidth: 0 } }, label),
+          ),
+        ]
       }
 
       /** 工作区行的 ⋯ 菜单：目前只有「重命名」（原生同一菜单里的「在文件夹显示」「删除工作区」未接）。 */
@@ -3357,43 +3490,62 @@ const markdownLabels = {
           'data-dsh-popup': '',
           onClick: (event) => event.stopPropagation(),
         },
-          h('button', {
-            type: 'button',
-            style: styles.pathMenuItem,
-            onClick: () => openRenameAsk(target.workspaceId, target.title),
-            onMouseEnter: (event) => { event.currentTarget.style.background = 'var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.04))' },
-            onMouseLeave: (event) => { event.currentTarget.style.background = 'transparent' },
-          },
-            h('span', { style: { ...styles.menuIconSlot, color: 'var(--dsw-alias-menu-icon, #6f7377)' } }, renameGlyph(14)),
-            h('span', { style: { flex: 1, minWidth: 0 } }, '重命名'),
-          ),
+          menuItem('rename', '重命名', renameGlyph(14), () => openRenameAsk(target.workspaceId, target.title)),
         )
       }
 
-      /** 重命名工作区对话框：原生 Modal（标题 + 输入框 + 取消/重命名），草稿空或未改动时确认钮禁用。 */
-      function renderRenameDialog() {
+      /**
+       * 会话行的 ⋯ 菜单：照原生 `registerSessionMenus` 的顺序 —— 置顶（100）/ 重命名（200）/
+       * 复制 Session ID（450，带分隔线）/ 归档（600，带分隔线）。
+       * 原生的「标记已读」「分叉会话」两项依赖 `sessionStatus/mark`、`session/fork` 的会话状态链路，尚未接入。
+       */
+      function renderSessionMenu() {
+        const target = sessionMenu
+        const pinned = pinnedIds.map(String).includes(String(target.sessionId))
+        const archived = archivedIds.map(String).includes(String(target.sessionId))
+        /** 点完一项就收起菜单（原生 `Menu` 的默认行为）。 */
+        const run = (fn) => () => { setSessionMenu(null); fn() }
+        return h('div', {
+          style: { ...styles.wsMenu, top: target.top, left: target.left },
+          'data-dsh-popup': '',
+          onClick: (event) => event.stopPropagation(),
+        },
+          archived ? null : menuItem('pin', pinned ? '取消置顶' : '置顶会话', pinGlyph(14, pinned),
+            run(() => void toggleSessionFlag(pinned ? 'workspace/unpinSession' : 'workspace/pinSession', 'pinnedSessionIds', target.sessionId))),
+          menuItem('rename', '重命名', renameGlyph(14), run(() => openSessionRename(target.sessionId, target.title))),
+          menuItem('copy', '复制 Session ID', copyGlyph(), run(() => copySessionIdText(target.sessionId)), true),
+          menuItem('archive', archived ? '取消归档' : '归档会话', archiveGlyph(14),
+            run(() => void toggleSessionFlag(archived ? 'workspace/unarchiveSession' : 'workspace/archiveSession', 'archivedSessionIds', target.sessionId)), true),
+        )
+      }
+
+      /**
+       * 重命名对话框（原生 Modal 外观）：标题 + 全选输入框 + 取消/确认，草稿空或未改动时确认钮禁用。
+       * 工作区与会话共用这一个外壳，只有标题、字段名和提交回调不同。
+       */
+      function renderRenameModal(options) {
         const draft = renameDraft.trim()
-        const blocked = renaming || draft === '' || (renameAsk !== null && draft === renameAsk.title)
+        const blocked = renaming || draft === '' || draft === options.title
         return h('div', {
           style: { ...styles.permDialogOverlay, backdropFilter: 'var(--dsw-mask-blur, blur(2px))' },
-          onClick: (event) => { if (event.target === event.currentTarget) closeRename() },
+          onClick: (event) => { if (event.target === event.currentTarget) options.close() },
         },
           h('div', {
             style: styles.renameDialog,
             role: 'dialog',
             'aria-modal': 'true',
-            'aria-label': '重命名工作区',
+            'aria-label': options.heading,
           },
             h('div', { style: { display: 'flex', flexDirection: 'column', width: '100%' } },
               h('div', { style: { ...styles.permDialogHead, alignItems: 'center', justifyContent: 'space-between' } },
-                h('h2', { style: { margin: 0, fontSize: 16, lineHeight: '24px', fontWeight: 500, color: T.pri } }, '重命名工作区'),
+                h('h2', { style: { margin: 0, fontSize: 16, lineHeight: '24px', fontWeight: 500, color: T.pri } }, options.heading),
                 h('button', {
                   type: 'button',
                   style: styles.ghostButton,
                   'aria-label': '关闭',
                   onMouseEnter: (event) => { event.currentTarget.style.background = 'var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.04))' },
                   onMouseLeave: (event) => { event.currentTarget.style.background = 'transparent' },
-                  onClick: closeRename,
+                  onClick: options.close,
                 }, closeGlyph(14)),
               ),
               h('div', { style: { ...styles.permDialogBody, marginTop: 20 } },
@@ -3402,18 +3554,18 @@ const markdownLabels = {
                   style: styles.renameInput,
                   value: renameDraft,
                   autoFocus: true,
-                  'aria-label': '工作区名称',
+                  'aria-label': options.field,
                   disabled: renaming,
                   onFocus: (event) => { event.currentTarget.select() },
                   onChange: (event) => { setRenameDraft(event.target.value); setRenameError('') },
                   onKeyDown: (event) => {
                     if (event.key === 'Enter') {
                       event.preventDefault()
-                      void confirmRename()
+                      void options.confirm()
                     }
                     if (event.key === 'Escape' && !renaming) {
                       event.preventDefault()
-                      closeRename()
+                      options.close()
                     }
                   },
                 }),
@@ -3421,16 +3573,36 @@ const markdownLabels = {
               ),
             ),
             h('div', { style: styles.permDialogFooter },
-              h('button', { type: 'button', style: styles.permCancel, onClick: closeRename }, '取消'),
+              h('button', { type: 'button', style: styles.permCancel, onClick: options.close }, '取消'),
               h('button', {
                 type: 'button',
                 style: blocked ? { ...styles.permConfirm, ...styles.permConfirmDisabled } : styles.permConfirm,
                 disabled: blocked,
-                onClick: () => void confirmRename(),
+                onClick: () => void options.confirm(),
               }, renaming ? '重命名中…' : '重命名'),
             ),
           ),
         )
+      }
+
+      function renderRenameDialog() {
+        return renderRenameModal({
+          heading: '重命名工作区',
+          field: '工作区名称',
+          title: renameAsk === null ? '' : renameAsk.title,
+          close: closeRename,
+          confirm: confirmRename,
+        })
+      }
+
+      function renderSessionRenameDialog() {
+        return renderRenameModal({
+          heading: '重命名会话',
+          field: '会话名称',
+          title: sessionRenameAsk === null ? '' : sessionRenameAsk.title,
+          close: closeSessionRename,
+          confirm: confirmSessionRename,
+        })
       }
 
       /**
