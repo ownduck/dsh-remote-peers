@@ -269,6 +269,9 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       '[data-rp-change-header]:hover { background: var(--dsw-alias-card-fill-hover, #f2f3f5); }',
       '[data-rp-change-header]:hover [data-rp-change-counts] { display: none; }',
       '[data-rp-change-header]:hover [data-rp-change-hint] { display: inline; }',
+      /* 草稿占位：原生 InputBar `.placeholder` 的 `label-caption`（figma 34:10434 = #ADB2B8 亮 / #81858C 暗），
+         浏览器默认占位色比它深一档，字形看着也更实。 */
+      '.rp-composer-input::placeholder { color: var(--dsw-alias-label-caption, #ADB2B8); opacity: 1; }',
       /* 文档加载指示器：原生 `StateDot` ongoing 的 1.5s 旋转 + 描边呼吸（同一条周期） */
       '@keyframes dsh-rp-spin { to { transform: rotate(360deg); } }',
       /* 待发附件上传中：原生 `.progressBar` 的 1.2s 往返扫条（缩略图与文件卡共用） */
@@ -6750,7 +6753,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       function renderComposer() {
         /** 输入框共用属性：受控值 + 自适应高度 + Enter 提交（Shift+Enter 换行）。 */
         const inputProps = (style, placeholder) => ({
-          ref: inputRef, style, rows: 1, value: promptText, placeholder,
+          ref: inputRef, className: 'rp-composer-input', style, rows: 1, value: promptText, placeholder,
           onChange: (event) => { setPromptText(event.target.value); growComposer(event.target) },
           /* 粘贴带文件就收下来（原生 PASTE_COMMAND：先吃附件，只有纯文本才走默认粘贴）。 */
           onPaste: (event) => { takePaste(event) },
@@ -6783,7 +6786,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
             h('div', { style: styles.overlayAnchor }, plusOpen ? renderPlusMenu() : null),
             renderStagedAttachments(),
             pendingCommand === null
-              ? h('textarea', inputProps(styles.composerInput, '发消息或创建任务，/ 调用指令，@ 文件或对话'))
+              ? h('textarea', inputProps(styles.composerInput, '发消息或创建任务'))
               : h('div', { style: { position: 'relative' } },
                   h('span', {
                     style: { ...styles.commandToken, width: `${pendingCommand.label.length * 15 + 6}px` },
