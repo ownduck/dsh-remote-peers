@@ -140,7 +140,6 @@ export const styles = {
   sessionTreeLabelArchived: { color: 'var(--dsw-alias-label-caption, #ADB2B8)' },
   /* 置顶行的常驻标记：原生 `.pinIndicator` —— 16×20 居中、左 6、label-caption，不可点 */
   sessionTreePin: { flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 16, height: 20, marginLeft: 6, color: 'var(--dsw-alias-label-caption, #ADB2B8)' },
-  sessionTreeMeta: { flex: 'none', fontSize: 11, lineHeight: '16px', color: 'var(--dsw-alias-label-tertiary, #a6a9ae)' },
   sessionTreeTime: { flex: 'none', fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-label-tertiary, #a6a9ae)' },
   /* 文件夹行右侧的新会话钮：原生 `.iconButton` —— 24×24 命中区（margin -4 压回 16）、14 图标、`label-tertiary`，hover 转 `label-primary` */
   sessionTreeAction: { flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, margin: -4, padding: 0, border: 0, borderRadius: 'var(--dsw-radius-xs, 4px)', background: 'transparent', color: 'var(--dsw-alias-label-tertiary, #a6a9ae)', cursor: 'pointer' },

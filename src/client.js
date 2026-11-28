@@ -2445,9 +2445,9 @@ const markdownLabels = {
         }, body)
       }
 
-      /** 文件夹行：chevron + 文件夹图标 + 名字，点击折叠/展开。目录节点（无工作区身份）右侧留数量与相对时间；
-          工作区行右侧不再显示数量/时间，hover 时换成「⋯ + 新会话」两枚图标钮 —— 原生 `.rowResting`/`.rowActions` 的互换。 */
-      function renderTreeFolder(key, depth, label, count, latest, workspaceId) {
+      /** 工作区行：chevron + 文件夹图标 + 名字，点击折叠/展开；右侧是「⋯ + 新会话」两枚图标钮。
+          原生 `.projectRow` 只有 folder/chevron/名字与动作，不显示数量/时间（`.rowResting`/`.rowActions` 互换）。 */
+      function renderTreeFolder(key, depth, label, workspaceId) {
         const open = sessionTreeOpen[key] !== false
         // 菜单开着的那一行保持展开态外观（原生 `.projectRow.menuOpen` 让 `.rowActions` 一直显示）
         const menuOpen = wsMenu !== null && wsMenu.workspaceId === workspaceId
@@ -2502,12 +2502,7 @@ const markdownLabels = {
                     },
                   }, busy ? spinnerGlyph(12) : newChatGlyph(14)),
                 )]
-          : (count === undefined
-              ? []
-              : [h('span', { key: 'resting', style: styles.sessionTreeResting, 'data-rp-resting': '' },
-                  h('span', { key: 'count', style: styles.sessionTreeMeta }, String(count)),
-                  h('span', { key: 'time', style: styles.sessionTreeTime }, relativeTimeText(latest)),
-                )])
+          : []
         return treeRowShell(key, depth,
           [
             // 原生 `.slot`：常态是文件夹，hover 换成实心三角（`.folder`/`.chevron` 在 CSS 里 display 互换）
@@ -2573,14 +2568,6 @@ const markdownLabels = {
         )
       }
 
-      /** 组内最近时间：用于文件夹行右侧的时间列。 */
-      function latestOf(rows) {
-        return rows.reduce((newest, row) => {
-          const stamp = typeof row.updatedAt === 'number' ? row.updatedAt : Date.parse(String(row.updatedAt ?? ''))
-          return Number.isFinite(stamp) && stamp > newest ? stamp : newest
-        }, 0)
-      }
-
       /** 置顶次序：命中的按下标排前（原生 `sectionMembers` 把 pinned 放在其余之前）。 */
       function pinRankOf(session) {
         const index = pinnedIds.map(String).indexOf(String(session.sessionId))
@@ -2618,59 +2605,33 @@ const markdownLabels = {
         return rows.map((session) => renderTreeSession(session, depth))
       }
 
-      /** 工作区树：按 cwd 逐级拆目录，叶子下挂会话（原生「按工作区树」）。 */
-      function workspaceTreeOf(list) {
-        const root = { key: 'wt:root', label: '', children: new Map(), rows: [] }
-        const nodeFor = (parent, segment) => {
-          const key = `${parent.key}/${segment}`
-          const existing = parent.children.get(segment)
-          if (existing !== undefined) return existing
-          const node = { key, label: segment, children: new Map(), rows: [] }
-          parent.children.set(segment, node)
-          return node
-        }
-        for (const session of list) {
-          const segments = String(session.cwd ?? '').split(/[\\/]+/u).filter((part) => part !== '')
-          let node = root
-          for (const segment of segments) node = nodeFor(node, segment)
-          node.rows.push(session)
-        }
-        return root
+      /** Host 风格的目录归一：Windows 盘符统一成正斜杠、去掉尾斜杠（原生 `folderPath`）。 */
+      function folderPathOf(path) {
+        const value = String(path ?? '')
+        if (value === '') return ''
+        const windows = /^[A-Za-z]:[/\\]/u.test(value) || value.startsWith('\\\\')
+        return (windows ? value.replaceAll('\\', '/') : value).replace(/\/+$/u, '')
       }
 
-      /** 递归渲染工作区树节点：文件夹行 + 子目录 + 直挂会话。 */
-      function renderWorkspaceTree(node, depth) {
-        const rows = []
-        const countOf = (item) => item.rows.length + [...item.children.values()].reduce((sum, child) => sum + countOf(child), 0)
-        const latestOfNode = (item) => latestOf([...item.rows, ...[...item.children.values()].map((child) => ({ updatedAt: latestOfNode(child) }))])
-        const emit = (item) => {
-          const open = sessionTreeOpen[item.key] !== false
-          rows.push(renderTreeFolder(item.key, depth, item.label, countOf(item), latestOfNode(item)))
-          if (!open) return
-          for (const session of sessionRows(item.rows, depth + 1)) rows.push(session)
-          for (const child of item.children.values()) emit(child)
+      /** 离它最近的已注册上级工作区（原生 `owningParentFolder`：只认已注册工作区，不拆中间目录）。 */
+      function owningParentOf(workspace, all) {
+        const child = folderPathOf(workspace.path)
+        if (child === '') return undefined
+        let owner
+        let length = -1
+        for (const candidate of all) {
+          if (candidate.workspaceId === workspace.workspaceId) continue
+          const root = folderPathOf(candidate.path)
+          if (root === '' || root.length <= length || child === root) continue
+          if (!child.startsWith(`${root}/`)) continue
+          owner = String(candidate.workspaceId)
+          length = root.length
         }
-        for (const child of node.children.values()) emit(child)
-        return rows
+        return owner
       }
 
-      /** 会话树：`workspace` 按工作区分组、`tree` 按工作区目录树、`list` 单列表。 */
-      function renderSessionList() {
-        const { list } = visibleSessions()
-
-        if (list.length === 0) {
-          return h('div', { style: styles.muted },
-            sessions.length === 0 ? '没有读到会话。' : '没有匹配的会话。')
-        }
-
-        if (groupMode === 'list') {
-          return h('div', { style: styles.sessionTree }, sessionRows(list, 0))
-        }
-
-        if (groupMode === 'tree') {
-          return h('div', { style: styles.sessionTree }, renderWorkspaceTree(workspaceTreeOf(list), 0))
-        }
-
+      /** 工作区分组（原生 `groupByWorkspace`）：成员取 `workspace.sessionIds`，置顶的排在本组最前。 */
+      function workspaceGroupsOf(list) {
         const byId = new Map(list.map((session) => [session.sessionId, session]))
         const claimed = new Set()
         const groups = workspaces
@@ -2679,27 +2640,78 @@ const markdownLabels = {
               .map((id) => byId.get(id))
               .filter((session) => session !== undefined)
             for (const row of rows) claimed.add(row.sessionId)
-            // 组内顺序：置顶的在前，其余沿用工作区给的顺序
             rows.sort((left, right) => pinRankOf(left) - pinRankOf(right))
-            return { key: `ws:${workspace.workspaceId}`, workspaceId: String(workspace.workspaceId), title: String(workspace.title ?? workspace.path ?? '未命名工作区'), rows }
+            const stored = String(workspace.title ?? workspace.path ?? '')
+            return {
+              key: `ws:${workspace.workspaceId}`,
+              workspaceId: String(workspace.workspaceId),
+              // 原生 `workspaceDisplayTitle`：首次使用的工作区目录名按语言显示成「默认工作区」
+              title: stored === 'default-workspace' ? '默认工作区' : (stored === '' ? '未命名工作区' : stored),
+              parent: owningParentOf(workspace, workspaces),
+              rows,
+            }
           })
           // 原生 groupByWorkspace：除「仅看已归档」时无成员跳过外，每个工作区都出一行（空工作区照样显示）
           .filter((group) => archiveFilter !== 'only' || group.rows.length > 0)
         const orphans = list.filter((session) => !claimed.has(session.sessionId))
+        return { groups, orphans }
+      }
 
-        /** 一层文件夹 + 其下会话行（展开时）。工作区行右侧不显示数量/时间（原生 `.projectRow` 只有文件夹、名字和动作） */
-        const folder = (group, depth) => {
-          const open = sessionTreeOpen[group.key] !== false
-          const rows = [renderTreeFolder(group.key, depth, group.title, undefined, undefined, group.workspaceId)]
-          if (open) for (const session of group.rows) rows.push(renderTreeSession(session, depth + 1))
+      /** 工作区行，展开时再挂上它的会话行。 */
+      function folderRows(group, depth, open) {
+        const rows = [renderTreeFolder(group.key, depth, group.title, group.workspaceId)]
+        if (open) for (const session of group.rows) rows.push(renderTreeSession(session, depth + 1))
+        return rows
+      }
+
+      /**
+       * 工作区段：`nested` 为假时平铺（原生「按工作区」），为真时按目录包含关系嵌套工作区（原生「按工作区树」
+       * —— 只嵌已注册工作区，不把中间目录拆成行；没有归属的会话单独挂在「未分组」）。
+       */
+      function renderWorkspaceSection(groups, orphans, nested) {
+        const orphan = orphans.length > 0
+          ? { key: 'orphans', title: '未分组', workspaceId: undefined, parent: undefined, rows: orphans }
+          : null
+        if (!nested) {
+          const rows = []
+          for (const group of groups) rows.push(...folderRows(group, 0, sessionTreeOpen[group.key] !== false))
+          if (orphan !== null) rows.push(...folderRows(orphan, 0, sessionTreeOpen[orphan.key] !== false))
           return rows
         }
+        const children = new Map()
+        for (const group of orphan === null ? groups : [...groups, orphan]) {
+          const owner = group.parent === undefined ? undefined : `ws:${group.parent}`
+          const siblings = children.get(owner)
+          if (siblings === undefined) children.set(owner, [group])
+          else siblings.push(group)
+        }
+        const rows = []
+        const emit = (group, depth) => {
+          const kids = children.get(group.key) ?? []
+          // 原生 `expandedGroups`：显式开过的按开；没动过的，有子级的默认展开、叶子默认收起
+          const open = sessionTreeOpen[group.key] ?? kids.length > 0
+          rows.push(...folderRows(group, depth, open))
+          if (!open) return
+          for (const child of kids) emit(child, depth + 1)
+        }
+        for (const group of children.get(undefined) ?? []) emit(group, 0)
+        return rows
+      }
 
-        // 原生 no「已归档」分组：归档会话留在所属工作区内（按筛选显隐）、只在标题降一档灰
-        const children = []
-        for (const group of groups) children.push(...folder(group, 0))
-        if (orphans.length > 0) children.push(...folder({ key: 'orphans', title: '未归入工作区', rows: orphans }, 0))
-        return h('div', { style: styles.sessionTree }, children)
+      /** 会话树：`workspace` 按工作区分组、`tree` 按工作区树、`list` 单列表。 */
+      function renderSessionList() {
+        const { list } = visibleSessions()
+
+        if (list.length === 0) {
+          return h('div', { style: styles.muted },
+            sessions.length === 0 ? '没有读到会话。' : '没有匹配的会话。')
+        }
+        if (groupMode === 'list') {
+          return h('div', { style: styles.sessionTree }, sessionRows(list, 0))
+        }
+        const { groups, orphans } = workspaceGroupsOf(list)
+        // 原生没有「已归档」分组：归档会话留在所属工作区内（按筛选显隐）、只在标题降一档灰
+        return h('div', { style: styles.sessionTree }, renderWorkspaceSection(groups, orphans, groupMode === 'tree'))
       }
 
       /** 对端显示名：优先用户填的名字，没有就用 host:port。 */
