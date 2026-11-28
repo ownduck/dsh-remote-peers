@@ -790,6 +790,8 @@ const markdownLabels = {
       const [pendingCommandBySession, setPendingCommandBySession] = useState({})
       /** 草稿在输入框里滚上去了吗：chip 与幽灵提示属于首行，滚动后一起隐藏。 */
       const [chipScrolled, setChipScrolled] = useState(false)
+      /** chip 标签的真实排版宽度（canvas 按 chip 自身字体量一次），宽度固定但不留估宽的余量。 */
+      const [chipLabelWidth, setChipLabelWidth] = useState(null)
       const pendingCommand = pendingCommandBySession[`${activePeer}:${openSession}`] ?? null
       /** 写入某个会话的 claim；不传 session 就写当前会话（发送/取消只动自己那条）。 */
       function setPendingCommandFor(peerId, sessionId, value) {
@@ -5876,12 +5878,19 @@ const markdownLabels = {
       useLayoutEffect(() => {
         const node = inputRef.current
         if (node === null) return
-        /* chip 宽度由内容自身决定，首行起点按量出来的右边缘 +4 写回（CSS 变量驱动 textarea/提示）。 */
+        /* chip 标签宽度按 chip 自身字体量一次（canvas），得到准确的首行缩进 ——
+           按字数估宽会把误差留在 X 右侧，靠量 DOM 又会受挂载顺序影响。 */
         const line = chipLineRef.current
-        if (line !== null) {
+        if (line !== null && pendingCommand !== null && chipLabelWidth?.label !== pendingCommand.label) {
           const chip = line.querySelector('[data-rp-command-chip]')
-          const right = chip === null ? 14 : chip.offsetLeft + chip.offsetWidth + 4
-          line.style.setProperty('--rp-chip-right', `${right}px`)
+          if (chip !== null) {
+            const computed = getComputedStyle(chip)
+            const context = document.createElement('canvas').getContext('2d')
+            if (context !== null) {
+              context.font = `${computed.fontWeight} ${computed.fontSize} ${computed.fontFamily}`
+              setChipLabelWidth({ label: pendingCommand.label, width: context.measureText(pendingCommand.label).width })
+            }
+          }
         }
         growComposer(node)
         if (node.scrollTop === 0) setChipScrolled(false)
@@ -5894,7 +5903,7 @@ const markdownLabels = {
         })
         observer.observe(node)
         return () => observer.disconnect()
-      }, [pendingCommand, openSession, promptText])
+      }, [pendingCommand, openSession, promptText, chipLabelWidth])
 
       /* 打开会话就把光标放进输入框（原生打开会话即可直接打字），光标落在草稿末尾。 */
       useEffect(() => {
@@ -6078,8 +6087,14 @@ const markdownLabels = {
             /* textarea 的节点位置在两种模式下保持不变（原生也是同一个编辑器，chip 只是里面的一个装饰），
                否则切模式会重挂节点、丢掉已量好的高度和滚动位置。 */
             (() => {
-              /* chip 宽度交给内容自身（左内距 4 / 2 间距 / X 槽 13 / 右内距 3），不再按字数估宽 ——
-                 估算出来的余量会堆在 X 右边，看着就是一块空白。首行起点由量出来的 chip 右边缘决定。 */
+              /* chip 宽度固定（左内距 4 + 标签实宽 + 2 + X 槽 13 + 右内距 3），不随 hover 变、也不留估宽余量：
+                 X 右侧只剩 3px，和左侧离斜杠的 4px 基本对称。 */
+              const estimate = [...(pendingCommand?.label ?? '')]
+                .reduce((sum, char) => sum + (char.codePointAt(0) > 0x2e80 ? 14 : 7), 0)
+              const labelWidth = chipLabelWidth !== null && chipLabelWidth.label === pendingCommand?.label
+                ? chipLabelWidth.width
+                : estimate
+              const chipWidth = pendingCommand === null ? 0 : Math.ceil(labelWidth) + 22
               /* chip 与幽灵提示属于首行：内容滚上去后它们跟着看不见（原生内联原子被裁掉的效果）。 */
               const lineHidden = chipScrolled ? 'hidden' : undefined
               return h('div', { 'data-rp-command-line': '', ref: chipLineRef, style: { position: 'relative', width: '100%', minWidth: 0 } },
@@ -6087,7 +6102,7 @@ const markdownLabels = {
                   ? null
                   : h('span', {
                       'data-rp-command-chip': '',
-                      style: { ...styles.commandToken, visibility: lineHidden },
+                      style: { ...styles.commandToken, width: `${chipWidth}px`, visibility: lineHidden },
                       onClick: () => inputRef.current?.focus(),
                     },
                     pendingCommand.label,
@@ -6106,13 +6121,13 @@ const markdownLabels = {
                   : h('span', {
                       'aria-hidden': 'true',
                       'data-rp-command-hint': '',
-                      style: { ...styles.commandHint, visibility: lineHidden },
+                      style: { ...styles.commandHint, paddingLeft: `${chipWidth + 14}px`, visibility: lineHidden },
                     }, pendingCommand.hint),
                 /* 原生 chip 是正文里的一个内联原子：首行从 chip 右侧起，折行回到正文左边缘。
                    这里用 text-indent 表达同一件事（首行缩进 = chip 占位，后续行不缩进）。 */
                 h('textarea', {
                   ...inputProps(
-                    { ...styles.composerInput, width: '100%' },
+                    { ...styles.composerInput, width: '100%', textIndent: `${chipWidth}px` },
                     pendingCommand === null ? '发消息或创建任务' : '',
                   ),
                   onScroll: (event) => setChipScrolled(event.currentTarget.scrollTop > 0),
