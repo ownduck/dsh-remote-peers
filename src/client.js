@@ -5926,18 +5926,30 @@ const markdownLabels = {
         if (openSession === null) return
         const timers = []
         let done = false
+        const describe = (element) => element === null ? 'null' : `${element.tagName ?? '?'}${element.className === undefined || element.className === '' ? '' : `.${String(element.className).split(' ')[0]}`}`
+        const onFocusIn = (event) => {
+          const target = event.target
+          if (target === inputRef.current) return
+          diagNote(`composer focus stolen by ${describe(target instanceof Element ? target : null)}`)
+        }
+        document.addEventListener('focusin', onFocusIn, true)
         const attempt = () => {
           if (done) return
           const node = visibleComposerNode()
-          if (node === null) return
           /* 草稿是切回来才灌进来的：聚焦前先按内容重量一次，别带着上一次的高度露出。 */
-          growComposer(node)
-          node.focus({ preventScroll: true })
-          node.setSelectionRange(node.value.length, node.value.length)
-          done = document.activeElement === node
+          if (node !== null) {
+            growComposer(node)
+            node.focus({ preventScroll: true })
+            node.setSelectionRange(node.value.length, node.value.length)
+            done = document.activeElement === node
+          }
+          diagNote(`composer focus ${done ? 'ok' : 'missed'} node=${describe(node)} active=${describe(document.activeElement instanceof Element ? document.activeElement : null)} doc=${document.hasFocus()}`)
         }
-        for (const delay of [0, 80, 240, 600]) timers.push(setTimeout(attempt, delay))
-        return () => { for (const timer of timers) clearTimeout(timer) }
+        for (const delay of [0, 80, 240, 600, 1200]) timers.push(setTimeout(attempt, delay))
+        return () => {
+          for (const timer of timers) clearTimeout(timer)
+          document.removeEventListener('focusin', onFocusIn, true)
+        }
       }, [openSession, activePeer])
 
       /* 目录没取到过就补一次：权限 chip 只在拿到目录后才有档位可显示（原生同样依赖目录）。 */
