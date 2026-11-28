@@ -130,11 +130,11 @@ const PROCESS_ROW_ICONS = {
     const downloadWatchers = new Set()
     const downloadSnapshot = () => {
       const jobs = [...LIVE_DOWNLOADS.values()].map((job) => ({
-        key: job.key, path: job.path, loaded: job.loaded, total: job.total, phase: job.phase,
+        key: job.key, path: job.path, loaded: job.loaded, total: job.total, phase: job.phase, startedAt: job.startedAt ?? 0,
       }))
       for (const item of STARTING.values()) {
         if (jobs.some((job) => job.key === item.key)) continue
-        jobs.push({ key: item.key, path: item.path, loaded: 0, total: item.total, phase: 'starting' })
+        jobs.push({ key: item.key, path: item.path, loaded: 0, total: item.total, phase: 'starting', startedAt: item.startedAt ?? 0 })
       }
       return jobs
     }
@@ -598,6 +598,8 @@ const markdownLabels = {
                 return next
               })
               LIVE_DOWNLOADS.delete(localKey)
+              // 必须显式通知：这一支只删表不产生新的进度指纹，不通知的话卡片读到的还是旧快照（一直转圈）。
+              notifyDownloads()
               continue
             }
             const loaded = Number(entry.loaded) || 0
@@ -614,6 +616,7 @@ const markdownLabels = {
               total,
               phase,
               remote: true,
+              startedAt: Number(entry.startedAt) || Date.now(),
               remoteKey: entry.key,
               localPath: typeof entry.localPath === 'string' ? entry.localPath : '',
             })
@@ -2131,6 +2134,9 @@ const markdownLabels = {
         if (path === '' || activePeer === '') return
         const key = transferKeyOf(activePeer, path)
         setTooltip(null)
+        // 过期的「刚开始」不再挡点击：先撤掉它，再照常发起下载。
+        const starting = STARTING.get(key)
+        if (starting !== undefined && Date.now() - (starting.startedAt ?? 0) > STARTING_TIMEOUT_MS) STARTING.delete(key)
         if (LIVE_DOWNLOADS.has(key) || STARTING.has(key)) return
         // 大小那一批已经问出「对端没这个文件」：不再起任务，直接给一句结论。
         if (fileSizes[key] === 'missing') {
@@ -4645,7 +4651,9 @@ const markdownLabels = {
       function downloadUiOf(key, path, copies) {
         const job = downloadJobOf(path)
         const hasCopy = copies[key] === true
-        if (job === undefined) {
+        // 迟迟等不到第一条进度的「刚开始」任务按没有任务算：UI 层不再无限转圈。
+        const stale = job !== undefined && job.phase === 'starting' && Date.now() - (job.startedAt ?? 0) > STARTING_TIMEOUT_MS
+        if (job === undefined || stale) {
           const local = hasCopy
           return {
             active: false, loading: false, downloading: false, local,
