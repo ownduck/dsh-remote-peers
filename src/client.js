@@ -3237,7 +3237,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
           key,
           role: 'button',
           tabIndex: 0,
-          title,
+          // 只留 aria-label：`title` 会冒出浏览器原生提示条，和行内按钮的自绘 tooltip 打架
           'aria-label': title,
           style: active ? { ...styles.sessionTreeRow, ...styles.sessionTreeRowHovered, paddingLeft: 8 + depth * 16 } : { ...styles.sessionTreeRow, paddingLeft: 8 + depth * 16 },
           onMouseEnter: () => setSessionTreeHover(key),
@@ -3875,7 +3875,6 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
                     key: 'crumb-workspace',
                     type: 'button',
                     style: styles.crumbButton,
-                    title: workspaceCrumb.title,
                     'aria-label': `工作区 ${workspaceCrumb.title}`,
                     onMouseEnter: (event) => { event.currentTarget.style.background = 'var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.04))' },
                     onMouseLeave: (event) => { event.currentTarget.style.background = 'transparent' },
