@@ -281,12 +281,20 @@ export function apply(ctx, config = {}) {
           })
         }
         case 'download/cancel': {
+          // 取消允许两种寻址：精确 key，或 id + path（分隔符/大小写对不上时按路径找）。
           const key = typeof payload?.key === 'string' ? payload.key : ''
-          const entry = liveTransfers.get(key)
-          if (entry === undefined) return fail('remote-peers/unknown-transfer', '没有这个下载任务')
-          entry.abort?.()
-          liveTransfers.delete(key)
-          return ok({ cancelled: key })
+          const byId = typeof payload?.id === 'string' ? payload.id : ''
+          const byPath = typeof payload?.path === 'string' ? payload.path : ''
+          const samePath = (value) => String(value).replace(/[/\\]+/gu, '\\').toLowerCase()
+          const target = liveTransfers.get(key)
+            ?? (byPath === ''
+              ? undefined
+              : [...liveTransfers.values()].find((entry) => (byId === '' || entry.peerId === byId) && samePath(entry.path) === samePath(byPath)))
+          // 已经没有这条任务也算取消成功：前端只需要一个「停掉它」的回答，不该再弹失败。
+          if (target === undefined) return ok({ cancelled: key, missing: true })
+          target.abort?.()
+          liveTransfers.delete(target.key)
+          return ok({ cancelled: target.key })
         }
         case 'diag': {
           // TEMP-DIAG：把渲染器一侧探测到的结果落到 stateDir/diag.log（渲染器 console 无处可看）。

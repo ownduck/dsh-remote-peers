@@ -2169,10 +2169,19 @@ const markdownLabels = {
        * 取消入口（第一段）：只弹确认框。大文件误点一下就会丢掉进度，先在「继续下载 / 取消下载」里选。
        */
       const cancelPeerDownload = useCallback((file) => {
-        const key = transferKeyOf(activePeer, peerAbsoluteOf(file))
-        if (LIVE_DOWNLOADS.get(key) === undefined && !STARTING.has(key)) return
-        setDownloadCancelAsk({ file })
-      }, [activePeer])
+        const path = peerAbsoluteOf(file)
+        const key = transferKeyOf(activePeer, path)
+        if (LIVE_DOWNLOADS.get(key) !== undefined || STARTING.has(key)) {
+          setDownloadCancelAsk({ file })
+          return
+        }
+        // 本地没有记账（键对不上、或状态已经过期）：界面上还挂着 loading，但点取消不能没反应。
+        // 先把过期的 loading 撤掉，再让 Host 按路径取消它那边可能仍在跑的任务。
+        STARTING.delete(key)
+        notifyDownloads()
+        void call('download/cancel', { id: activePeer, path }).catch(() => {})
+        notice('已取消这次下载', true)
+      }, [activePeer, call])
 
       /**
        * 取消入口（第二段）：确认后真正停掉 —— Host 中止取字节并丢掉 `.part`，
@@ -2186,8 +2195,10 @@ const markdownLabels = {
         // 刚取消的任务 Host 可能还报一两轮，先压住，别让卡片闪回来。
         CANCELLING.set(key, Date.now())
         notifyDownloads()
-        const remoteKey = typeof job?.remoteKey === 'string' ? job.remoteKey : `${activePeer}|${peerAbsoluteOf(file)}`
-        void call('download/cancel', { key: remoteKey }).catch(() => {})
+        const path = peerAbsoluteOf(file)
+        const remoteKey = typeof job?.remoteKey === 'string' ? job.remoteKey : `${activePeer}|${path}`
+        // 同时给 Host 路径：记账键万一对不上（分隔符/大小写），Host 还能按路径找到那条任务。
+        void call('download/cancel', { key: remoteKey, id: activePeer, path }).catch(() => {})
       }, [activePeer])
 
       /** 取消下载的确认框：讲清会丢掉多少进度、并且不会留在本机。 */
