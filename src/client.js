@@ -292,6 +292,18 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       '[data-rp-change-header]:hover { background: var(--dsw-alias-card-fill-hover, #f2f3f5); }',
       '[data-rp-change-header]:hover [data-rp-change-counts] { display: none; }',
       '[data-rp-change-header]:hover [data-rp-change-hint] { display: inline; }',
+      /* 会话树行：hover 全部交给 CSS（原生就是 `:hover`）。行在指针底下被移除/插入时，浏览器会把 hover
+         直接交给现在占位的行；用 React 的 hover 状态则收不到 mouseenter（鼠标没动），会出现「上面一行
+         被归档后消失，下一行不亮而浮在里层的按钮还在」的错位。 */
+      '[data-rp-row]:hover, [data-rp-row][data-rp-open="true"] { background: var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.04)); }',
+      '[data-rp-row] [data-rp-actions] { display: none; }',
+      '[data-rp-row] [data-rp-resting] { display: inline-flex; }',
+      '[data-rp-row]:hover [data-rp-actions], [data-rp-row][data-rp-open="true"] [data-rp-actions] { display: inline-flex; }',
+      '[data-rp-row]:hover [data-rp-resting], [data-rp-row][data-rp-open="true"] [data-rp-resting] { display: none; }',
+      '[data-rp-row] [data-rp-folder-icon] { display: inline-flex; }',
+      '[data-rp-row] [data-rp-chevron] { display: none; }',
+      '[data-rp-row]:hover [data-rp-folder-icon] { display: none; }',
+      '[data-rp-row]:hover [data-rp-chevron] { display: inline-flex; }',
       /* 草稿占位：原生 InputBar `.placeholder` 的 `label-caption`（figma 34:10434 = #ADB2B8 亮 / #81858C 暗），
          浏览器默认占位色比它深一档，字形看着也更实。 */
       '.rp-composer-input::placeholder { color: var(--dsw-alias-label-caption, #ADB2B8); opacity: 1; }',
@@ -438,7 +450,6 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       sessionTree: { display: 'flex', flexDirection: 'column', gap: 1 },
       /* 行本体：原生 `.projectRow`/`.sessionRow` —— 32px、0 8px、md 圆角、gap 6 */
       sessionTreeRow: { display: 'flex', alignItems: 'center', gap: 6, boxSizing: 'border-box', width: '100%', height: 32, margin: 0, padding: '0 8px', border: 0, borderRadius: 'var(--dsw-radius-md, 8px)', background: 'transparent', color: 'inherit', font: 'inherit', textAlign: 'left', cursor: 'pointer' },
-      sessionTreeRowHovered: { background: 'var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.04))' },
       /* 前导槽：原生 `.slot` —— 16×20 居中，常态放文件夹图标，hover 换成实心三角（`.projectRow:hover` 的 folder/chevron 互换） */
       treeLeadSlot: { flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 16, height: 20, color: 'var(--dsw-alias-label-tertiary, #a6a9ae)' },
       sessionTreeLabel: { flex: '1 1 auto', minWidth: 0, overflow: 'hidden', fontSize: 14, lineHeight: '20px', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
@@ -450,8 +461,10 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       sessionTreeTime: { flex: 'none', fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-label-tertiary, #a6a9ae)' },
       /* 文件夹行右侧的新会话钮：原生 `.iconButton` —— 24×24 命中区（margin -4 压回 16）、14 图标、`label-tertiary`，hover 转 `label-primary` */
       sessionTreeAction: { flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, margin: -4, padding: 0, border: 0, borderRadius: 'var(--dsw-radius-xs, 4px)', background: 'transparent', color: 'var(--dsw-alias-label-tertiary, #a6a9ae)', cursor: 'pointer' },
-      /* 工作区行 hover 时的动作列：原生 `.rowActions` —— 20 高、gap 13（两枚 -4 外边距的 24 钮叠出 ~5px 视觉间距） */
-      sessionTreeActions: { flex: 'none', display: 'inline-flex', alignItems: 'center', height: 20, gap: 13 },
+      /* 工作区行/会话行 hover 时的动作列：原生 `.rowActions` —— 20 高、gap 13（两枚 -4 外边距的 24 钮叠出 ~5px 视觉间距）；display 交给 CSS 的 `[data-rp-actions]` */
+      sessionTreeActions: { flex: 'none', alignItems: 'center', height: 20, gap: 13 },
+      /* 会话行常态右位：原生 `.rowResting` —— 20 高、gap 6；display 交给 CSS 的 `[data-rp-resting]` */
+      sessionTreeResting: { flex: 'none', alignItems: 'center', height: 20, gap: 6 },
       /* 工作区 ⋯ 菜单：原生 Menu `.list` —— 4 内距、144~360 宽、lg 圆角、prominent 阴影 */
       wsMenu: { position: 'fixed', zIndex: 1100, boxSizing: 'border-box', padding: 4, minWidth: 144, maxWidth: 360, borderRadius: 'var(--dsw-radius-lg, 10px)', background: 'var(--dsw-menu-surface-fill, rgba(252,253,254,0.7))', backdropFilter: T.menuBlur, WebkitBackdropFilter: T.menuBlur, boxShadow: T.elevationProminent },
       menuIconSlot: { display: 'inline-flex', flex: 'none', width: 14, justifyContent: 'center', color: 'inherit' },
@@ -1097,7 +1110,6 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       const sizePendingRef = useRef(new Set())
       /** 刚报过失败的 `<peerId>:<路径>`：任务从 Host 表里消失时据此区分「成功落盘」和「失败退场」。 */
       const failedKeysRef = useRef(new Set())
-      const [sessionTreeHover, setSessionTreeHover] = useState('')
       /** 正在为哪个工作区建新会话（工作区 id），空串表示没有在飞。 */
       const [creatingIn, setCreatingIn] = useState('')
       /** 打开的工作区 ⋯ 菜单：`{ workspaceId, title, top, left }`，null 表示关着。 */
@@ -3306,19 +3318,22 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         return new Date(stamp).toLocaleDateString()
       }
 
-      /** 树行的通用外壳：缩进按层级、hover 底色、右侧列固定不挤。行本体是 div（行内还要放按钮，
-         原生这两层也是 div + role=button），键盘 Enter/Space 与点击同效。 */
-      function treeRowShell(key, depth, body, onClick, title, forceActive) {
-        const active = sessionTreeHover === key || forceActive === true
+      /**
+       * 树行的通用外壳：缩进按层级、右侧列固定不挤。行本体是 div（行内还要放按钮，
+       * 原生这两层也是 div + role=button），键盘 Enter/Space 与点击同效。
+       * hover 外观（底色、动作列/常态列的互换、文件夹/三角的互换）全走 CSS 的 `:hover`，
+       * 这里只挂 `data-rp-row`（及 `data-rp-open`）让样式表选中。
+       */
+      function treeRowShell(key, depth, body, onClick, title, attrs) {
         return h('div', {
           key,
           role: 'button',
           tabIndex: 0,
           // 只留 aria-label：`title` 会冒出浏览器原生提示条，和行内按钮的自绘 tooltip 打架
           'aria-label': title,
-          style: active ? { ...styles.sessionTreeRow, ...styles.sessionTreeRowHovered, paddingLeft: 8 + depth * 16 } : { ...styles.sessionTreeRow, paddingLeft: 8 + depth * 16 },
-          onMouseEnter: () => setSessionTreeHover(key),
-          onMouseLeave: () => setSessionTreeHover((current) => (current === key ? '' : current)),
+          'data-rp-row': '',
+          ...attrs,
+          style: { ...styles.sessionTreeRow, paddingLeft: 8 + depth * 16 },
           onClick,
           onKeyDown: (event) => {
             if (event.key !== 'Enter' && event.key !== ' ') return
@@ -3330,14 +3345,13 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
 
       /** 文件夹行：chevron + 文件夹图标 + 名字，点击折叠/展开。目录节点（无工作区身份）右侧留数量与相对时间；
           工作区行右侧不再显示数量/时间，hover 时换成「⋯ + 新会话」两枚图标钮 —— 原生 `.rowResting`/`.rowActions` 的互换。 */
-      function renderTreeFolder(key, depth, label, count, latest, workspaceId) {        const open = sessionTreeOpen[key] !== false
+      function renderTreeFolder(key, depth, label, count, latest, workspaceId) {
+        const open = sessionTreeOpen[key] !== false
         // 菜单开着的那一行保持展开态外观（原生 `.projectRow.menuOpen` 让 `.rowActions` 一直显示）
         const menuOpen = wsMenu !== null && wsMenu.workspaceId === workspaceId
-        const hovered = sessionTreeHover === key || menuOpen
         const busy = workspaceId !== undefined && creatingIn === workspaceId
         const actions = workspaceId !== undefined
-          ? (hovered
-              ? [h('div', { key: 'actions', style: styles.sessionTreeActions },
+          ? [h('div', { key: 'actions', style: styles.sessionTreeActions, 'data-rp-actions': '' },
                   h('button', {
                     key: 'menu',
                     type: 'button',
@@ -3386,34 +3400,35 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
                     },
                   }, busy ? spinnerGlyph(12) : newChatGlyph(14)),
                 )]
-              : [])
           : (count === undefined
               ? []
-              : [
+              : [h('span', { key: 'resting', style: styles.sessionTreeResting, 'data-rp-resting': '' },
                   h('span', { key: 'count', style: styles.sessionTreeMeta }, String(count)),
                   h('span', { key: 'time', style: styles.sessionTreeTime }, relativeTimeText(latest)),
-                ])
+                )])
         return treeRowShell(key, depth,
           [
-            // 原生 `.slot`：常态是文件夹，hover 换成实心三角（`.folder`/`.chevron` 互换），没有单独的常驻 caret
-            h('span', { key: 'lead', style: styles.treeLeadSlot }, hovered ? triangleFillGlyph(open) : navFolderGlyph(open)),
+            // 原生 `.slot`：常态是文件夹，hover 换成实心三角（`.folder`/`.chevron` 在 CSS 里 display 互换）
+            h('span', { key: 'lead', style: styles.treeLeadSlot },
+              h('span', { key: 'folder', 'data-rp-folder-icon': '' }, navFolderGlyph(open)),
+              h('span', { key: 'chevron', 'data-rp-chevron': '' }, triangleFillGlyph(open))),
             h('span', { key: 'label', style: styles.sessionTreeLabel }, label),
             ...actions,
           ],
           () => setSessionTreeOpen((previous) => ({ ...previous, [key]: previous[key] === false })),
           label,
-          hovered,
+          menuOpen ? { 'data-rp-open': 'true' } : undefined,
         )
       }
 
       /**
        * 会话行：常态右侧是「相对时间 +（置顶时的）静态图钉」，hover 换成「归档 + 置顶」两枚图标钮
-       * —— 原生 `.rowResting`/`.rowActions` 的互换（`PinnedIndicator` 不可点，`pinIndicator` 16×20 17）。
+       * —— 原生 `.rowResting`/`.rowActions` 的互换（`PinnedIndicator` 不可点、`pinIndicator` 16×20 左 6）。
        * 已归档行留在原位、不带前导标记、只把标题降一档灰；置顶钮在归档行不渲染（`PinSession` 的 `if (archived) return null`）。
+       * 两侧同时挂在 DOM 里，由 CSS `:hover` 决定谁显示 —— 行被移除后浏览器会把 hover 交给下一行。
        */
       function renderTreeSession(session, depth) {
         const key = `s:${session.sessionId}`
-        const hovered = sessionTreeHover === key
         const pinned = pinnedIds.map(String).includes(String(session.sessionId))
         const archived = archivedIds.map(String).includes(String(session.sessionId))
         const iconButton = (id, label, glyph, onClick) => h('button', {
@@ -3435,7 +3450,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
             onClick()
           },
         }, glyph)
-        const actions = h('div', { key: 'actions', style: styles.sessionTreeActions },
+        const actions = h('div', { key: 'actions', style: styles.sessionTreeActions, 'data-rp-actions': '' },
           iconButton('archive', archived ? '取消归档' : '归档会话', archiveGlyph(14),
             () => void toggleSessionFlag(archived ? 'workspace/unarchiveSession' : 'workspace/archiveSession', 'archivedSessionIds', session.sessionId)),
           archived ? null : iconButton('pin', pinned ? '取消置顶' : '置顶会话', pinGlyph(14, pinned),
@@ -3443,13 +3458,12 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         return treeRowShell(key, depth,
           [
             h('span', { key: 'label', style: archived ? { ...styles.sessionTreeLabel, ...styles.sessionTreeLabelArchived } : styles.sessionTreeLabel }, sessionTitle(session)),
-            hovered
-              ? actions
-              : h('span', { key: 'resting', style: styles.sessionTreeActions },
-                  h('span', { key: 'time', style: styles.sessionTreeTime }, relativeTimeText(session.updatedAt)),
-                  pinned && !archived
-                    ? h('span', { key: 'pin', style: styles.sessionTreePin, 'aria-label': '已置顶', role: 'img' }, pinGlyph(14, true))
-                    : null),
+            actions,
+            h('span', { key: 'resting', style: styles.sessionTreeResting, 'data-rp-resting': '' },
+              h('span', { key: 'time', style: styles.sessionTreeTime }, relativeTimeText(session.updatedAt)),
+              pinned && !archived
+                ? h('span', { key: 'pin', style: styles.sessionTreePin, 'aria-label': '已置顶', role: 'img' }, pinGlyph(14, true))
+                : null),
           ],
           () => void openRemoteSession(activePeer, session.sessionId),
           `${sessionTitle(session)} · ${session.sessionId} · ${session.cwd ?? ''}`,
