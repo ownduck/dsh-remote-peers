@@ -34,6 +34,9 @@ export const SCROLL_SKIN = [
   '[data-rp-row] [data-rp-chevron] { display: none; }',
   '[data-rp-row]:hover [data-rp-folder-icon] { display: none; }',
   '[data-rp-row]:hover [data-rp-chevron] { display: inline-flex; }',
+  /* 会话清单整块不可选中（原生左栏的行与标题就是 `user-select: none`），输入框仍按文本处理 */
+  '[data-rp-tree] { -webkit-user-select: none; user-select: none; }',
+  '[data-rp-tree] input, [data-rp-tree] textarea { -webkit-user-select: text; user-select: text; }',
   /* 草稿占位：原生 InputBar `.placeholder` 的 `label-caption`（figma 34:10434 = #ADB2B8 亮 / #81858C 暗），
      浏览器默认占位色比它深一档，字形看着也更实。 */
   '.rp-composer-input::placeholder { color: var(--dsw-alias-label-caption, #ADB2B8); opacity: 1; }',

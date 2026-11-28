@@ -2976,7 +2976,7 @@ const markdownLabels = {
           },
           onMouseLeave: () => setIconHint(null),
         })
-        return h('div', { style: styles.card },
+        return h('div', { style: styles.card, 'data-rp-tree': '' },
           h('div', { style: styles.row },
             h('h3', { style: styles.title }, '会话'), h('div', { style: { flex: 1 } }),
             // 搜索展开后就地变成一条 240px 的输入框（原生只占工具条这一小段，不铺满整行）
