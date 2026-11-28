@@ -47,6 +47,27 @@ const PROCESS_ROW_ICONS = {
      * 卡片在这段时间显示 loading（转圈），第一块字节写下去才切进度。
      */
     const STARTING = new Map()
+    /** 等不到第一条 status 的「刚点下载」窗口上限：超时就没收，不让卡片一直转圈。 */
+    const STARTING_TIMEOUT_MS = 8000
+    /**
+     * 下载记账键：卡片给的是拼接后的展示路径，Host 给的是对端原始路径，两者在 `\` 与 `/`
+     * 上可能不一致（`join` 会混出 `C:\a/b`）。键必须收敛成同一个，否则失败/完成状态贴不到卡片上。
+     */
+    function transferKeyOf(peerId, path) {
+      const peer = typeof peerId === 'string' ? peerId : ''
+      const clean = typeof path === 'string' ? path.replace(/[/\\]+/gu, '\\') : String(path ?? '')
+      return `${peer}:${clean}`
+    }
+
+    /**
+     * 下载失败的文案：Host 旧版本只回裸的 HTTP 码，这里补成人能读的说明
+     * （404 就是对端那份文件已经不在了，通常是清理 / 移动过）。
+     */
+    function downloadFailureText(failure) {
+      const text = String(failure ?? '未知错误')
+      if (/HTTP 404/u.test(text)) return '对端上没有这份文件（可能已被清理或移动）'
+      return text
+    }
     /**
      * 单例视口观察器：卡片/图片进视口才回调一次 `onEnter`（结果由各自的缓存兜住，
      * 重复挂载只会在缓存命中时立刻出值，不再产生请求）。`rootMargin` 提前 320px 预取，
@@ -555,7 +576,7 @@ const markdownLabels = {
           if (!live) return
           for (const entry of list) {
             if (typeof entry?.key !== 'string' || typeof entry?.path !== 'string') continue
-            const localKey = `${entry.peerId}:${entry.path}`
+            const localKey = transferKeyOf(entry.peerId, entry.path)
             const cancelledAt = CANCELLING.get(localKey)
             if (cancelledAt !== undefined) {
               if (Date.now() - cancelledAt < 8000) continue
@@ -567,7 +588,7 @@ const markdownLabels = {
               if (!FAILED_NOTICE.has(`${localKey}:${entry.startedAt}`)) {
                 FAILED_NOTICE.add(`${localKey}:${entry.startedAt}`)
                 failedKeysRef.current.add(localKey)
-                notice(`下载失败：${String(entry.failure ?? '未知错误')}`, false)
+                notice(`下载失败：${downloadFailureText(entry.failure)}`, false)
               }
               // 失败多半是「对端已经没有这份文件」：撤回过期的「已下载」标记，这一格恢复成「下载」。
               setLocalCopies((previous) => {
@@ -598,7 +619,7 @@ const markdownLabels = {
             })
           }
           for (const localKey of [...LIVE_DOWNLOADS.keys()]) {
-            if (list.some((entry) => `${entry.peerId}:${entry.path}` === localKey)) continue
+            if (list.some((entry) => transferKeyOf(entry.peerId, entry.path) === localKey)) continue
             const gone = LIVE_DOWNLOADS.get(localKey)
             LIVE_DOWNLOADS.delete(localKey)
             // 任务从 Host 表里退场 = 写完改名成功（取消先进 CANCELLING，失败另有标记），
@@ -608,6 +629,14 @@ const markdownLabels = {
             setLocalCopies((previous) => (previous[localKey] === true ? previous : { ...previous, [localKey]: true }))
           }
           const next = [...LIVE_DOWNLOADS.values()].map((job) => `${job.key}|${job.phase}|${job.loaded}|${job.total}`).join(',')
+          // 兜底：点了「下载」但 Host 始终没有认领出这条任务（对端已无此文件、Host 仍在旧版本、
+          // 或记账键对不上）。超时就撤掉 loading，卡片恢复成可点的「下载」，绝不一直转圈。
+          for (const [localKey, job] of [...STARTING.entries()]) {
+            if (Date.now() - (Number(job?.startedAt) || 0) < STARTING_TIMEOUT_MS) continue
+            if (list.some((entry) => transferKeyOf(entry.peerId, entry.path) === localKey)) continue
+            STARTING.delete(localKey)
+            notifyDownloads()
+          }
           // 有任务在跑的 key 一律撤回「已下载」：那只可能是副本被删了在重取（或刚点了下载），
           // 完成后再由上面的退场分支重新标回来。
           if (LIVE_DOWNLOADS.size > 0) {
@@ -2030,7 +2059,7 @@ const markdownLabels = {
           // 本机端点回的是解包后的值（`{ path, action }`），不是 `proxy` 那种 `{ result }` 信封。
           const opened = result?.result?.ok === true ? result.result.value : result
           if (typeof opened?.path !== 'string') throw new Error('本机没能打开这个文件')
-          if (opened.reused === true) setLocalCopies((previous) => (previous[`${activePeer}:${path}`] === true ? previous : { ...previous, [`${activePeer}:${path}`]: true }))
+          if (opened.reused === true) setLocalCopies((previous) => (previous[transferKeyOf(activePeer, path)] === true ? previous : { ...previous, [transferKeyOf(activePeer, path)]: true }))
           setError('')
         } catch (failure) {
           notice(errorText(failure), false)
@@ -2054,7 +2083,7 @@ const markdownLabels = {
       const revealLocalCopy = useCallback(async (file) => {
         const path = peerAbsoluteOf(file)
         if (path === '' || activePeer === '') return false
-        const key = `${activePeer}:${path}`
+        const key = transferKeyOf(activePeer, path)
         const started = typeof performance !== 'undefined' ? performance.now() : Date.now()
         setRevealing((previous) => (previous[key] === true ? previous : { ...previous, [key]: true }))
         // 与 RPC 并行的一段固定停留：回包再快也要把「正在打开…」显示满 2 秒，避免一闪而过。
@@ -2097,7 +2126,7 @@ const markdownLabels = {
       const downloadPeerPath = useCallback((file) => {
         const path = peerAbsoluteOf(file)
         if (path === '' || activePeer === '') return
-        const key = `${activePeer}:${path}`
+        const key = transferKeyOf(activePeer, path)
         setTooltip(null)
         if (LIVE_DOWNLOADS.has(key) || STARTING.has(key)) return
         // 先进入 loading：Host 还要一次 stat、再起第一页，这段时间卡片转圈。
@@ -2117,7 +2146,7 @@ const markdownLabels = {
           STARTING.delete(key)
           notifyDownloads()
           diagNote(`download save failed ${path}: ${errorText(failure)}`)
-          notice(`下载失败：${errorText(failure)}`, false)
+          notice(`下载失败：${downloadFailureText(errorText(failure))}`, false)
         })
       }, [activePeer, openSession, fileSizes])
 
@@ -2125,7 +2154,7 @@ const markdownLabels = {
        * 取消入口（第一段）：只弹确认框。大文件误点一下就会丢掉进度，先在「继续下载 / 取消下载」里选。
        */
       const cancelPeerDownload = useCallback((file) => {
-        const key = `${activePeer}:${peerAbsoluteOf(file)}`
+        const key = transferKeyOf(activePeer, peerAbsoluteOf(file))
         if (LIVE_DOWNLOADS.get(key) === undefined && !STARTING.has(key)) return
         setDownloadCancelAsk({ file })
       }, [activePeer])
@@ -2135,7 +2164,7 @@ const markdownLabels = {
        * 与进度是否推进完全解耦，卡住不动也能点掉。
        */
       const doCancelDownload = useCallback((file) => {
-        const key = `${activePeer}:${peerAbsoluteOf(file)}`
+        const key = transferKeyOf(activePeer, peerAbsoluteOf(file))
         STARTING.delete(key)
         const job = LIVE_DOWNLOADS.get(key)
         LIVE_DOWNLOADS.delete(key)
@@ -2150,7 +2179,7 @@ const markdownLabels = {
       function renderDownloadCancelDialog() {
         const file = downloadCancelAsk?.file
         const close = () => setDownloadCancelAsk(null)
-        const key = file === undefined ? '' : `${activePeer}:${peerAbsoluteOf(file)}`
+        const key = file === undefined ? '' : transferKeyOf(activePeer, peerAbsoluteOf(file))
         const job = downloads.find((item) => item.key === key)
         const loaded = job === undefined ? '' : formatBytes(job.loaded)
         const percent = job !== undefined && job.total > 0
@@ -3462,7 +3491,7 @@ const markdownLabels = {
         const top = below + menuHeight > globalThis.innerHeight ? Math.max(8, rect.top - 4 - menuHeight) : below
         const right = Math.max(8, globalThis.innerWidth - rect.right)
         const path = peerAbsoluteOf(file)
-        const key = `${activePeer}:${path}`
+        const key = transferKeyOf(activePeer, path)
         diagNote(`card menu open top=${Math.round(top)} right=${Math.round(right)}`)
         setPathMenu({ file, top, right, available: REVEAL_READY.get(key) ?? null })
         // 打开菜单时问一次本机有没有副本：没下载过就置灰、点了也不动。
@@ -3477,7 +3506,7 @@ const markdownLabels = {
         const available = pathMenu.available
         const targetPath = pathMenu.file === undefined || pathMenu.file === null ? '' : peerAbsoluteOf(pathMenu.file)
         // 正在等资源管理器弹窗：菜单不关，这一项就地变成「正在打开…」，命中或超时后由回调收起。
-        const opening = targetPath !== '' && revealing[`${activePeer}:${targetPath}`] === true
+        const opening = targetPath !== '' && revealing[transferKeyOf(activePeer, targetPath)] === true
         return h('div', {
           style: { ...styles.pathMenu, top: pathMenu.top, right: pathMenu.right },
           'data-dsh-popup': '',
@@ -4327,7 +4356,7 @@ const markdownLabels = {
             const name = baseNameOf(file.path)
             const fallback = extOf(name).toUpperCase() || '文件'
             const description = cardDescriptionOf(file.description, fallback)
-            const cardKey = `${activePeer}:${peerAbsoluteOf(file)}`
+            const cardKey = transferKeyOf(activePeer, peerAbsoluteOf(file))
             // 对端文件大小（Host 只读响应头问来的）；取不到就只在描述里显示原描述
             const sizeText = formatBytes(fileSizes[cardKey])
             const descriptionText = sizeText === '' ? description : `${description} · ${sizeText}`
@@ -4575,7 +4604,7 @@ const markdownLabels = {
 
       /** 该文件当前的下载任务（没有则 undefined）：卡片据此在「下载 / 取消 NN%」之间切换。 */
       function downloadJobOf(path) {
-        return downloads.find((item) => item.key === `${activePeer}:${path}`)
+        return downloads.find((item) => item.key === transferKeyOf(activePeer, path))
       }
 
       /**
@@ -4886,7 +4915,7 @@ const markdownLabels = {
           void loadPreviewContent(absolutePath)
           // 预览里的下载图标也要知道「本机是否已有副本」：从文件树/链接进来的文件不会经过卡片，
           // 这里补一次登记（同一批会合并，已经问过就自动跳过）。
-          askSizeOf(`${activePeer}:${absolutePath}`, absolutePath)
+          askSizeOf(transferKeyOf(activePeer, absolutePath), absolutePath)
         }
       }
 
@@ -5114,9 +5143,9 @@ const markdownLabels = {
         const name = baseNameOf(path.replace(/[\\/]+$/u, ''))
         const mode = previewTab.info === true ? 'info' : previewModeOf(path)
         // 下载态与卡片同源：预览工具条上那个下载图标也要跟着变成「取消 / 转圈」。
-        const paneUi = downloadUiOf(`${activePeer}:${shownPath}`, shownPath, localCopies)
+        const paneUi = downloadUiOf(transferKeyOf(activePeer, shownPath), shownPath, localCopies)
         /** 预览工具条上的「显示文件位置」也在等窗口：图标转圈、tooltip 换成「正在打开…」。 */
-        const paneRevealing = revealing[`${activePeer}:${shownPath}`] === true
+        const paneRevealing = revealing[transferKeyOf(activePeer, shownPath)] === true
         const paneDownloadTip = paneUi.loading ? '正在开始下载…（点击取消）' : paneUi.hint
         // 页签条：38px（28px 行 + 10px 上边距）、gap 4、页签圆角 8 无描边。
         const tabs = h('div', { style: styles.previewTabStrip },
@@ -5481,7 +5510,7 @@ const markdownLabels = {
           // 照抄主体 `TextPreview` 的 `css.empty`：36px 灰化文件图标 + 「该格式文件暂时无法预览」
           // + 交给 Host 的「打开」入口（这里就是卡片同一套分段按钮：主格打开、caret 显示文件位置）。
           const file = { path: previewTab?.path ?? path, absolutePath: previewTab?.absolutePath ?? path }
-          const emptyUi = downloadUiOf(`${activePeer}:${file.absolutePath}`, file.absolutePath, localCopies)
+          const emptyUi = downloadUiOf(transferKeyOf(activePeer, file.absolutePath), file.absolutePath, localCopies)
           return h('div', { style: styles.unsupported },
             fileGlyph(36),
             h('p', { style: styles.unsupportedLine }, '该格式文件暂时无法预览'),
