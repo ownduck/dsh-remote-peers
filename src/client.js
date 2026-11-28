@@ -5849,6 +5849,12 @@ const markdownLabels = {
         element.style.height = `${Math.min(element.scrollHeight, 336)}px`
       }
 
+      /* 认领/取消 chip 会换掉 textarea 节点（新节点高度回到 min-height，草稿被裁在一行半里），
+         所以每次 chip 或会话变化后按当前内容重新量一次高度。 */
+      useEffect(() => {
+        if (inputRef.current !== null) growComposer(inputRef.current)
+      }, [pendingCommand, openSession])
+
       /**
        * 待发附件 —— 图片在原生 `ComposerAttachments.rail` 里是 64×64 缩略图；
        * 其余文件按原生 `ReferenceChip` 的口径排在下面一行蓝字 chip 里（不是文件卡）。
