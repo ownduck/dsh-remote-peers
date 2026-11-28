@@ -322,8 +322,14 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       return Math.max(680, Math.min(column * 0.64, 920))
     }
 
-    function ensureScrollSkin() {      if (typeof document === 'undefined') return
-      if (document.querySelector('style[data-remote-peers-skin]') !== null) return
+    /** 注入滚动条/占位等只能写成 CSS 的皮肤；已存在的旧标签直接改写内容，插件热重载后新规则才能落地。 */
+    function ensureScrollSkin() {
+      if (typeof document === 'undefined') return
+      const existing = document.querySelector('style[data-remote-peers-skin]')
+      if (existing !== null) {
+        if (existing.textContent !== SCROLL_SKIN) existing.textContent = SCROLL_SKIN
+        return
+      }
       const element = document.createElement('style')
       element.setAttribute('data-remote-peers-skin', '')
       element.textContent = SCROLL_SKIN
