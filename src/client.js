@@ -413,21 +413,23 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       td: { padding: '6px 8px', borderBottom: '1px solid var(--dsh-border-weak, #f0f0f0)' },
       /* 会话树（照原生左栏「工作区 → 会话」的形状：文件夹行 + 缩进会话行 + 右侧相对时间） */
       sessionTree: { display: 'flex', flexDirection: 'column', gap: 1 },
-      sessionTreeRow: { display: 'flex', alignItems: 'center', gap: 6, boxSizing: 'border-box', width: '100%', minHeight: 30, margin: 0, padding: '5px 10px 5px 6px', border: 0, borderRadius: 8, background: 'transparent', color: 'inherit', font: 'inherit', textAlign: 'left', cursor: 'pointer' },
+      /* 行本体：原生 `.projectRow`/`.sessionRow` —— 32px、0 8px、md 圆角、gap 6 */
+      sessionTreeRow: { display: 'flex', alignItems: 'center', gap: 6, boxSizing: 'border-box', width: '100%', height: 32, margin: 0, padding: '0 8px', border: 0, borderRadius: 'var(--dsw-radius-md, 8px)', background: 'transparent', color: 'inherit', font: 'inherit', textAlign: 'left', cursor: 'pointer' },
       sessionTreeRowHovered: { background: 'var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.04))' },
-      sessionTreeCaret: { display: 'inline-flex', flex: 'none', alignItems: 'center', justifyContent: 'center', width: 12, color: 'var(--dsw-alias-label-caption, #81858C)' },
-      sessionTreeIcon: { display: 'inline-flex', flex: 'none', alignItems: 'center', justifyContent: 'center', color: 'var(--dsw-alias-label-secondary, #4b4f55)' },
-      sessionTreeLabel: { flex: '1 1 auto', minWidth: 0, overflow: 'hidden', fontSize: 13, lineHeight: '20px', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+      /* 前导槽：原生 `.slot` —— 16×20 居中，常态放文件夹图标，hover 换成实心三角（`.projectRow:hover` 的 folder/chevron 互换） */
+      treeLeadSlot: { flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 16, height: 20, color: 'var(--dsw-alias-label-tertiary, #a6a9ae)' },
+      sessionTreeLabel: { flex: '1 1 auto', minWidth: 0, overflow: 'hidden', fontSize: 14, lineHeight: '20px', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
       sessionTreeMeta: { flex: 'none', fontSize: 11, lineHeight: '16px', color: 'var(--dsw-alias-label-tertiary, #a6a9ae)' },
       sessionTreeTime: { flex: 'none', fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-label-tertiary, #a6a9ae)' },
-      /* 文件夹行右侧的新会话钮：原生 `.iconButton` —— 24×24 命中区、14 图标、`label-tertiary`，hover 转 `label-primary` */
-      sessionTreeAction: { flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, margin: '-4px 0 -4px 0', padding: 0, border: 0, borderRadius: 'var(--dsw-radius-xs, 4px)', background: 'transparent', color: 'var(--dsw-alias-label-tertiary, #a6a9ae)', cursor: 'pointer' },
-      /* 工作区行 hover 时的动作列：⋯ 与 ⊕ 并排（原生 `.rowActions` gap 13，图标钮 -4px 外边距后视觉距约 5） */
-      sessionTreeActions: { flex: 'none', display: 'flex', alignItems: 'center', gap: 4 },
-      /* 工作区 ⋯ 菜单：沿用文件路径浮层的卡片样式 */
-      wsMenu: { position: 'fixed', zIndex: 240, boxSizing: 'border-box', padding: 4, minWidth: 168, borderRadius: T.radiusLg10, background: 'var(--dsw-menu-surface-fill, rgba(252,253,254,0.7))', backdropFilter: T.menuBlur, WebkitBackdropFilter: T.menuBlur, boxShadow: 'var(--dsw-elevation-prominent, 0.5px 0 0 0 var(--dsw-alias-border-l1, #ececec), 0 12px 32px rgba(0,0,0,0.16))' },
-      menuIconSlot: { display: 'inline-flex', flex: 'none', width: 16, justifyContent: 'center', color: 'inherit' },
-      /* 重命名对话框的输入框：原生 WorkspaceBrowser `.renameInput` —— 100%、44px、7 14、0.5 边、lg 圆角 */
+      /* 文件夹行右侧的新会话钮：原生 `.iconButton` —— 24×24 命中区（margin -4 压回 16）、14 图标、`label-tertiary`，hover 转 `label-primary` */
+      sessionTreeAction: { flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, margin: -4, padding: 0, border: 0, borderRadius: 'var(--dsw-radius-xs, 4px)', background: 'transparent', color: 'var(--dsw-alias-label-tertiary, #a6a9ae)', cursor: 'pointer' },
+      /* 工作区行 hover 时的动作列：原生 `.rowActions` —— 20 高、gap 13（两枚 -4 外边距的 24 钮叠出 ~5px 视觉间距） */
+      sessionTreeActions: { flex: 'none', display: 'inline-flex', alignItems: 'center', height: 20, gap: 13 },
+      /* 工作区 ⋯ 菜单：原生 Menu `.list` —— 4 内距、144~360 宽、lg 圆角、prominent 阴影 */
+      wsMenu: { position: 'fixed', zIndex: 1100, boxSizing: 'border-box', padding: 4, minWidth: 144, maxWidth: 360, borderRadius: 'var(--dsw-radius-lg, 10px)', background: 'var(--dsw-menu-surface-fill, rgba(252,253,254,0.7))', backdropFilter: T.menuBlur, WebkitBackdropFilter: T.menuBlur, boxShadow: T.elevationProminent },
+      menuIconSlot: { display: 'inline-flex', flex: 'none', width: 14, justifyContent: 'center', color: 'inherit' },
+      /* 重命名对话框：原生 Modal `.dialog`（380 宽、20 gap、底部 24）+ WorkspaceBrowser `.renameInput` */
+      renameDialog: { boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 20, width: 'min(380px, 100%)', padding: '0 0 24px', overflow: 'hidden', borderRadius: 'var(--dsw-radius-panel, 12px)', background: 'var(--dsw-alias-bg-layer-2, #fff)', boxShadow: T.elevationProminent },
       renameInput: { boxSizing: 'border-box', width: '100%', height: 44, padding: '7px 14px', border: '0.5px solid var(--dsw-alias-border-l4, #dcdde0)', borderRadius: 'var(--dsw-radius-lg, 12px)', outline: 'none', background: 'transparent', fontSize: 14, fontWeight: 400, lineHeight: '22px', color: T.pri },
       renameErrorText: { marginTop: 8, fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-state-error-primary, #d92d20)' },
       /* 面包屑的可点段：文字 + 下拉箭头，hover 浮出底色（原生 `.crumb`） */
@@ -3229,14 +3231,15 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
 
       /** 树行的通用外壳：缩进按层级、hover 底色、右侧列固定不挤。行本体是 div（行内还要放按钮，
          原生这两层也是 div + role=button），键盘 Enter/Space 与点击同效。 */
-      function treeRowShell(key, depth, body, onClick, title) {
+      function treeRowShell(key, depth, body, onClick, title, forceActive) {
+        const active = sessionTreeHover === key || forceActive === true
         return h('div', {
           key,
           role: 'button',
           tabIndex: 0,
           title,
           'aria-label': title,
-          style: sessionTreeHover === key ? { ...styles.sessionTreeRow, ...styles.sessionTreeRowHovered, paddingLeft: 6 + depth * 16 } : { ...styles.sessionTreeRow, paddingLeft: 6 + depth * 16 },
+          style: active ? { ...styles.sessionTreeRow, ...styles.sessionTreeRowHovered, paddingLeft: 8 + depth * 16 } : { ...styles.sessionTreeRow, paddingLeft: 8 + depth * 16 },
           onMouseEnter: () => setSessionTreeHover(key),
           onMouseLeave: () => setSessionTreeHover((current) => (current === key ? '' : current)),
           onClick,
@@ -3252,7 +3255,9 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
           工作区行右侧不再显示数量/时间，hover 时换成「⋯ + 新会话」两枚图标钮 —— 原生 `.rowResting`/`.rowActions` 的互换。 */
       function renderTreeFolder(key, depth, label, count, latest, workspaceId) {
         const open = sessionTreeOpen[key] !== false
-        const hovered = sessionTreeHover === key
+        // 菜单开着的那一行保持展开态外观（原生 `.projectRow.menuOpen` 让 `.rowActions` 一直显示）
+        const menuOpen = wsMenu !== null && wsMenu.workspaceId === workspaceId
+        const hovered = sessionTreeHover === key || menuOpen
         const busy = workspaceId !== undefined && creatingIn === workspaceId
         const actions = workspaceId !== undefined
           ? (hovered
@@ -3307,13 +3312,14 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
             ]
         return treeRowShell(key, depth,
           [
-            h('span', { key: 'caret', style: styles.sessionTreeCaret }, caretRightGlyph(open)),
-            h('span', { key: 'icon', style: styles.sessionTreeIcon }, navFolderGlyph(open)),
+            // 原生 `.slot`：常态是文件夹，hover 换成实心三角（`.folder`/`.chevron` 互换），没有单独的常驻 caret
+            h('span', { key: 'lead', style: styles.treeLeadSlot }, hovered ? triangleFillGlyph(open) : navFolderGlyph(open)),
             h('span', { key: 'label', style: styles.sessionTreeLabel }, label),
             ...actions,
           ],
           () => setSessionTreeOpen((previous) => ({ ...previous, [key]: previous[key] === false })),
           label,
+          hovered,
         )
       }
 
@@ -4098,47 +4104,50 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         const draft = renameDraft.trim()
         const blocked = renaming || draft === '' || (renameAsk !== null && draft === renameAsk.title)
         return h('div', {
-          style: styles.permDialogOverlay,
+          style: { ...styles.permDialogOverlay, backdropFilter: 'var(--dsw-mask-blur, blur(2px))' },
           onClick: (event) => { if (event.target === event.currentTarget) closeRename() },
         },
           h('div', {
-            style: { ...styles.permDialog, width: 'min(560px, 100%)' },
+            style: styles.renameDialog,
             role: 'dialog',
             'aria-modal': 'true',
             'aria-label': '重命名工作区',
           },
-            h('div', { style: { ...styles.permDialogHead, alignItems: 'center' } },
-              h('span', { style: { flex: 1 } }, '重命名工作区'),
-              h('button', {
-                type: 'button',
-                style: styles.ghostButton,
-                'aria-label': '关闭',
-                title: '关闭',
-                onClick: closeRename,
-              }, closeGlyph(12)),
-            ),
-            h('div', { style: { ...styles.permDialogBody, gap: 0 } },
-              h('input', {
-                type: 'text',
-                style: styles.renameInput,
-                value: renameDraft,
-                autoFocus: true,
-                'aria-label': '工作区名称',
-                disabled: renaming,
-                onFocus: (event) => { event.currentTarget.select() },
-                onChange: (event) => { setRenameDraft(event.target.value); setRenameError('') },
-                onKeyDown: (event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault()
-                    void confirmRename()
-                  }
-                  if (event.key === 'Escape' && !renaming) {
-                    event.preventDefault()
-                    closeRename()
-                  }
-                },
-              }),
-              renameError === '' ? null : h('div', { style: styles.renameErrorText, role: 'alert' }, renameError),
+            h('div', { style: { display: 'flex', flexDirection: 'column', width: '100%' } },
+              h('div', { style: { ...styles.permDialogHead, alignItems: 'center', justifyContent: 'space-between' } },
+                h('h2', { style: { margin: 0, fontSize: 16, lineHeight: '24px', fontWeight: 500, color: T.pri } }, '重命名工作区'),
+                h('button', {
+                  type: 'button',
+                  style: styles.ghostButton,
+                  'aria-label': '关闭',
+                  onMouseEnter: (event) => { event.currentTarget.style.background = 'var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.04))' },
+                  onMouseLeave: (event) => { event.currentTarget.style.background = 'transparent' },
+                  onClick: closeRename,
+                }, closeGlyph(14)),
+              ),
+              h('div', { style: { ...styles.permDialogBody, marginTop: 20 } },
+                h('input', {
+                  type: 'text',
+                  style: styles.renameInput,
+                  value: renameDraft,
+                  autoFocus: true,
+                  'aria-label': '工作区名称',
+                  disabled: renaming,
+                  onFocus: (event) => { event.currentTarget.select() },
+                  onChange: (event) => { setRenameDraft(event.target.value); setRenameError('') },
+                  onKeyDown: (event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      void confirmRename()
+                    }
+                    if (event.key === 'Escape' && !renaming) {
+                      event.preventDefault()
+                      closeRename()
+                    }
+                  },
+                }),
+                renameError === '' ? null : h('div', { style: styles.renameErrorText, role: 'alert' }, renameError),
+              ),
             ),
             h('div', { style: styles.permDialogFooter },
               h('button', { type: 'button', style: styles.permCancel, onClick: closeRename }, '取消'),
@@ -6029,11 +6038,17 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
           h('path', { d: 'M4.5 3L7.5 6L4.5 9', fill: 'none', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round', strokeLinejoin: 'round' }))
       }
 
-      /** 菜单里的「重命名」：14px 铅笔（描边式，与原生 EditOutlineRegular 同形）。 */
+      /** 文件夹行的 hover 三角：原生 `IconTriangleRightFillRegular`（实心、14px，展开时旋转 90°）。 */
+      function triangleFillGlyph(open) {
+        return h('svg', { width: 14, height: 14, viewBox: '0 0 16 16', style: { flex: 'none', display: 'block', color: 'inherit', transform: open ? 'rotate(90deg)' : undefined, transition: 'transform 150ms var(--ds-ease-in-out, ease-in-out)' } },
+          h('path', { d: 'M5.5 4.5C5.5 4.40714 5.52586 4.31612 5.57467 4.23713C5.62349 4.15815 5.69334 4.09431 5.77639 4.05279C5.85945 4.01126 5.95242 3.99368 6.0449 4.00202C6.13738 4.01036 6.22572 4.04429 6.3 4.1L10.967 7.6C11.0291 7.64657 11.0795 7.70697 11.1142 7.77639C11.1489 7.84582 11.167 7.92238 11.167 8C11.167 8.07762 11.1489 8.15418 11.1142 8.22361C11.0795 8.29303 11.0291 8.35343 10.967 8.4L6.3 11.9C6.22572 11.9557 6.13738 11.9896 6.0449 11.998C5.95242 12.0063 5.85945 11.9887 5.77639 11.9472C5.69334 11.9057 5.62349 11.8419 5.57467 11.7629C5.52586 11.6839 5.5 11.5929 5.5 11.5V4.5Z', fill: 'currentColor' }))
+      }
+
+      /** 菜单里的「重命名」：原生 `IconEditOutlineRegular` 的原路径（方框 + 斜笔），14px。 */
       function renameGlyph(size = 14) {
-        const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1, strokeLinecap: 'round', strokeLinejoin: 'round' }
         return h('svg', { width: size, height: size, viewBox: '0 0 16 16', style: { flex: 'none', display: 'block', color: 'inherit' } },
-          h('path', { d: 'M10.5 3.2l2.3 2.3M3 13v-2.6L11.8 1.6l2.6 2.6L5.6 13H3Z', ...stroke }))
+          h('path', { d: 'M8.85596 2.69971H4.19971C3.37141 2.69971 2.69992 3.37146 2.69971 4.19971V11.8003C2.69992 12.6285 3.37141 13.3003 4.19971 13.3003H11.8003C12.6283 13.2999 13.3001 12.6283 13.3003 11.8003V7.89893H14.3003V11.8003C14.3001 13.1806 13.1806 14.2999 11.8003 14.3003H4.19971C2.81913 14.3003 1.69992 13.1808 1.69971 11.8003V4.19971C1.69992 2.81918 2.81913 1.69971 4.19971 1.69971H8.85596V2.69971Z', fill: 'currentColor' }),
+          h('path', { d: 'M7.7849 8.23878L13.888 2.13574', fill: 'none', stroke: 'currentColor', strokeWidth: 1 }))
       }
 
       /** 「新会话」：原生 `IconNewChatOutlineRegular` 的原路径（气泡 + 十字），14px、1px 描边。 */
