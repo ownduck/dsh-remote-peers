@@ -422,6 +422,20 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       sessionTreeTime: { flex: 'none', fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-label-tertiary, #a6a9ae)' },
       /* 文件夹行右侧的新会话钮：原生 `.iconButton` —— 24×24 命中区、14 图标、`label-tertiary`，hover 转 `label-primary` */
       sessionTreeAction: { flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, margin: '-4px 0 -4px 0', padding: 0, border: 0, borderRadius: 'var(--dsw-radius-xs, 4px)', background: 'transparent', color: 'var(--dsw-alias-label-tertiary, #a6a9ae)', cursor: 'pointer' },
+      /* 工作区行 hover 时的动作列：⋯ 与 ⊕ 并排（原生 `.rowActions` gap 13，图标钮 -4px 外边距后视觉距约 5） */
+      sessionTreeActions: { flex: 'none', display: 'flex', alignItems: 'center', gap: 4 },
+      /* 工作区 ⋯ 菜单：沿用文件路径浮层的卡片样式 */
+      wsMenu: { position: 'fixed', zIndex: 240, boxSizing: 'border-box', padding: 4, minWidth: 168, borderRadius: T.radiusLg10, background: 'var(--dsw-menu-surface-fill, rgba(252,253,254,0.7))', backdropFilter: T.menuBlur, WebkitBackdropFilter: T.menuBlur, boxShadow: 'var(--dsw-elevation-prominent, 0.5px 0 0 0 var(--dsw-alias-border-l1, #ececec), 0 12px 32px rgba(0,0,0,0.16))' },
+      menuIconSlot: { display: 'inline-flex', flex: 'none', width: 16, justifyContent: 'center', color: 'inherit' },
+      /* 重命名对话框的输入框：原生 WorkspaceBrowser `.renameInput` —— 100%、44px、7 14、0.5 边、lg 圆角 */
+      renameInput: { boxSizing: 'border-box', width: '100%', height: 44, padding: '7px 14px', border: '0.5px solid var(--dsw-alias-border-l4, #dcdde0)', borderRadius: 'var(--dsw-radius-lg, 12px)', outline: 'none', background: 'transparent', fontSize: 14, fontWeight: 400, lineHeight: '22px', color: T.pri },
+      renameErrorText: { marginTop: 8, fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-state-error-primary, #d92d20)' },
+      /* 面包屑的可点段：文字 + 下拉箭头，hover 浮出底色（原生 `.crumb`） */
+      crumbButton: { display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: 220, padding: '4px 6px 4px 8px', border: 'none', borderRadius: 'var(--dsw-radius-sm, 6px)', background: 'transparent', color: T.sec, cursor: 'pointer', font: 'inherit', fontSize: 14, lineHeight: '20px' },
+      crumbLabel: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+      crumbCaret: { flex: 'none', display: 'inline-flex', color: T.ter },
+      /* 面包屑分隔符：原生 `.crumbSep` —— 14px caption 灰 */
+      crumbSep: { flex: 'none', padding: '0 2px', fontSize: 14, lineHeight: '20px', color: 'var(--dsw-alias-label-caption, #ADB2B8)' },
       // ── 会话页（照原生版式：通栏正文 + 右侧用户气泡 + 药丸输入框） ──
       conversationPage: { position: 'relative', display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 },
       /** 会话页里的失败提示：原生用 toast 报告「打开失败」，这里贴底居中一条，不挡正文。 */
@@ -1055,6 +1069,13 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       const [sessionTreeHover, setSessionTreeHover] = useState('')
       /** 正在为哪个工作区建新会话（工作区 id），空串表示没有在飞。 */
       const [creatingIn, setCreatingIn] = useState('')
+      /** 打开的工作区 ⋯ 菜单：`{ workspaceId, title, top, left }`，null 表示关着。 */
+      const [wsMenu, setWsMenu] = useState(null)
+      /** 重命名工作区对话框：`{ workspaceId, title }`（title 是确认时的基线，不是草稿）。 */
+      const [renameAsk, setRenameAsk] = useState(null)
+      const [renameDraft, setRenameDraft] = useState('')
+      const [renaming, setRenaming] = useState(false)
+      const [renameError, setRenameError] = useState('')
       /** 对端模型目录（session/modelCatalog），用于输入区右侧的模型名与切换。 */
       const [catalog, setCatalog] = useState(null)
       /** 对端 Agent 预设清单（agentPresets/list），用来把 agentPreset id 显示成名字。 */
@@ -1614,6 +1635,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
 
       /** 浮层（卡片 caret 菜单、「本轮用量」、「底部统计」）点空白或按 Esc 关闭。 */
       useDismiss(pathMenu !== null, () => setPathMenu(null))
+      useDismiss(wsMenu !== null, () => setWsMenu(null))
       useDismiss(viewMenu !== null, () => setViewMenu(null))
       useDismiss(usageDialog !== null, () => setUsageDialog(null))
       useDismiss(statDialog !== null, () => setStatDialog(null))
@@ -2289,9 +2311,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
           const result = await call('proxy', {
             id: activePeer,
             method: 'session/create',
-            // 对端的 `/api/<method>` 直取请求体字段；`args` 是历史 `session/list` 已验证能过的同形包法，
-            // 两处都给一份，避免不同版本的节点各读一边（多出的键对方不报错）。
-            payload: { workspaceId, args: { workspaceId } },
+            payload: { args: { workspaceId } },
           })
           const envelope = envelopeOf(result, '节点没能新建会话')
           const sessionId = String(envelope.value?.sessionId ?? '')
@@ -2304,6 +2324,48 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
           setCreatingIn('')
         }
       }, [activePeer, call, creatingIn, loadSessions, openRemoteSession])
+
+      /** 打开重命名工作区对话框：草稿预填当前名字（原生 Modal 里全选待改）。 */
+      const openRenameAsk = useCallback((workspaceId, title) => {
+        setWsMenu(null)
+        setRenameAsk({ workspaceId, title })
+        setRenameDraft(title)
+        setRenameError('')
+      }, [])
+
+      const closeRename = useCallback(() => {
+        if (renaming) return
+        setRenameAsk(null)
+        setRenameDraft('')
+        setRenameError('')
+      }, [renaming])
+
+      /** 提交重命名：`workspace/rename` 只改标题，成功后就地替换列表里的那一行（工作区流也会推 upsert）。 */
+      const confirmRename = useCallback(async () => {
+        if (renameAsk === null || renaming) return
+        const title = renameDraft.trim()
+        if (title === '' || title === renameAsk.title) return
+        setRenaming(true)
+        setRenameError('')
+        try {
+          const result = await call('proxy', {
+            id: activePeer,
+            method: 'workspace/rename',
+            payload: { args: { workspaceId: renameAsk.workspaceId, title } },
+          })
+          const envelope = envelopeOf(result, '节点没能重命名工作区')
+          const workspace = envelope.value?.workspace
+          if (workspace?.workspaceId !== undefined) {
+            setWorkspaces((previous) => previous.map((item) => (item.workspaceId === workspace.workspaceId ? workspace : item)))
+          }
+          setRenameAsk(null)
+          setRenameDraft('')
+        } catch (failure) {
+          setRenameError(errorText(failure))
+        } finally {
+          setRenaming(false)
+        }
+      }, [activePeer, call, renameAsk, renameDraft, renaming])
 
       /**
        * 执行一条斜杠命令（走宿主 `commands/execute`，与原生 composer 一致）。
@@ -2925,6 +2987,8 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
 
         activePeer === '' || isFocused === false ? null : renderRemoteSessions(),
         renderViewMenu(),
+        wsMenu === null ? null : renderWorkspaceMenu(),
+        renameAsk === null ? null : renderRenameDialog(),
         iconHint === null ? null : renderIconHint(),
       )
 
@@ -3184,38 +3248,63 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         }, body)
       }
 
-      /** 文件夹行：chevron + 文件夹图标 + 名字 + 数量 + 右侧相对时间，点击折叠/展开。
-          有工作区身份时（`workspaceId`）hover 把右侧时间列换成「新会话」钮 —— 原生 `.rowResting`/`.rowActions` 的互换。 */
+      /** 文件夹行：chevron + 文件夹图标 + 名字，点击折叠/展开。目录节点（无工作区身份）右侧留数量与相对时间；
+          工作区行右侧不再显示数量/时间，hover 时换成「⋯ + 新会话」两枚图标钮 —— 原生 `.rowResting`/`.rowActions` 的互换。 */
       function renderTreeFolder(key, depth, label, count, latest, workspaceId) {
         const open = sessionTreeOpen[key] !== false
         const hovered = sessionTreeHover === key
         const busy = workspaceId !== undefined && creatingIn === workspaceId
-        const actions = workspaceId === undefined || !hovered
-          ? [
+        const actions = workspaceId !== undefined
+          ? (hovered
+              ? [h('div', { key: 'actions', style: styles.sessionTreeActions },
+                  h('button', {
+                    key: 'menu',
+                    type: 'button',
+                    'aria-label': '更多',
+                    style: styles.sessionTreeAction,
+                    onMouseEnter: (event) => {
+                      event.currentTarget.style.color = 'var(--dsw-alias-label-primary, inherit)'
+                      showHint(`menu:${key}`, '更多', event)
+                    },
+                    onMouseLeave: (event) => {
+                      event.currentTarget.style.color = ''
+                      hideHint(`menu:${key}`)
+                    },
+                    onClick: (event) => {
+                      // 别冒泡到行本身（那会折叠/展开），也别让 window 的空点立刻关掉刚开的菜单
+                      event.stopPropagation()
+                      hideHint(`menu:${key}`)
+                      const rect = event.currentTarget.getBoundingClientRect()
+                      setWsMenu({ workspaceId, title: label, top: rect.bottom + 4, left: rect.left })
+                    },
+                  }, h('span', { style: { fontSize: 15, lineHeight: 1, letterSpacing: 1 } }, '⋯')),
+                  h('button', {
+                    key: 'new',
+                    type: 'button',
+                    'aria-label': '新会话',
+                    style: busy ? { ...styles.sessionTreeAction, cursor: 'default' } : styles.sessionTreeAction,
+                    disabled: busy,
+                    onMouseEnter: (event) => {
+                      event.currentTarget.style.color = 'var(--dsw-alias-label-primary, inherit)'
+                      showHint(`new:${key}`, '新会话', event)
+                    },
+                    onMouseLeave: (event) => {
+                      event.currentTarget.style.color = ''
+                      hideHint(`new:${key}`)
+                    },
+                    onFocus: (event) => showHint(`new:${key}`, '新会话', event),
+                    onBlur: () => hideHint(`new:${key}`),
+                    onClick: (event) => {
+                      event.stopPropagation()
+                      void createSessionIn(workspaceId)
+                    },
+                  }, busy ? spinnerGlyph(12) : newChatGlyph(14)),
+                )]
+              : [])
+          : [
               h('span', { key: 'count', style: styles.sessionTreeMeta }, String(count)),
               h('span', { key: 'time', style: styles.sessionTreeTime }, relativeTimeText(latest)),
             ]
-          : [h('button', {
-              key: 'new',
-              type: 'button',
-              'aria-label': '新会话',
-              style: busy ? { ...styles.sessionTreeAction, cursor: 'default' } : styles.sessionTreeAction,
-              disabled: busy,
-              onMouseEnter: (event) => {
-                event.currentTarget.style.color = 'var(--dsw-alias-label-primary, inherit)'
-                showHint(`new:${key}`, '新会话', event)
-              },
-              onMouseLeave: (event) => {
-                event.currentTarget.style.color = ''
-                hideHint(`new:${key}`)
-              },
-              onFocus: (event) => showHint(`new:${key}`, '新会话', event),
-              onBlur: () => hideHint(`new:${key}`),
-              onClick: (event) => {
-                event.stopPropagation()
-                void createSessionIn(workspaceId)
-              },
-            }, busy ? spinnerGlyph(12) : newChatGlyph(14))]
         return treeRowShell(key, depth,
           [
             h('span', { key: 'caret', style: styles.sessionTreeCaret }, caretRightGlyph(open)),
@@ -3733,8 +3822,15 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         )
       }
 
+      /** 会话归到的工作区：按工作区流里的 `sessionIds` 反查，查不到给 null（不猜）。 */
+      function workspaceOfSession(sessionId) {
+        if (sessionId === null || sessionId === '') return null
+        return workspaces.find((item) => Array.isArray(item.sessionIds) && item.sessionIds.includes(sessionId)) ?? null
+      }
+
       function renderConversation() {
         const peer = peers.find((item) => item.id === activePeer)
+        const workspaceCrumb = workspaceOfSession(openSession)
         const mode = presetOfSession(openSession, presets)
         // 每轮最后一条助手消息才挂动作行（原生 turn-tail）。
         const tailIndexes = new Map()
@@ -3769,6 +3865,26 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
                     },
                     onClick: () => { closeStream(); setOpenSession(null); setMessages([]) },
                   }, backArrowGlyph(16)),
+                  workspaceCrumb === null ? null : h('button', {
+                    key: 'crumb-workspace',
+                    type: 'button',
+                    style: styles.crumbButton,
+                    title: workspaceCrumb.title,
+                    'aria-label': `工作区 ${workspaceCrumb.title}`,
+                    onMouseEnter: (event) => { event.currentTarget.style.background = 'var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.04))' },
+                    onMouseLeave: (event) => { event.currentTarget.style.background = 'transparent' },
+                    onClick: (event) => {
+                      event.stopPropagation()
+                      const rect = event.currentTarget.getBoundingClientRect()
+                      setWsMenu({ workspaceId: workspaceCrumb.workspaceId, title: workspaceCrumb.title, top: rect.bottom + 4, left: rect.left })
+                    },
+                  },
+                    h('span', { style: styles.crumbLabel }, workspaceCrumb.title),
+                    h('span', { style: styles.crumbCaret },
+                      h('svg', { width: 10, height: 10, viewBox: '0 0 12 12' },
+                        h('path', { d: 'M3 4.5L6 7.5L9 4.5', fill: 'none', stroke: 'currentColor', strokeWidth: 1.2, strokeLinecap: 'round', strokeLinejoin: 'round' }))),
+                  ),
+                  workspaceCrumb === null ? null : h('span', { key: 'crumb-sep', style: styles.crumbSep }, '/'),
                   h('div', { style: styles.convTitle }, sessionTitleOf(openSession)),
                   mode === null ? null : h('span', { style: styles.modeChip },
                     h('svg', { width: 12, height: 12, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.2 },
@@ -3828,6 +3944,8 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
           ),
           renderPermissionDialog(),
           pathMenu === null ? null : renderPathMenu(),
+          wsMenu === null ? null : renderWorkspaceMenu(),
+          renameAsk === null ? null : renderRenameDialog(),
           tooltip === null ? null : h('div', { style: { ...styles.tooltipBox, top: tooltip.top, left: tooltip.centerX } }, tooltip.text),
           iconHint === null ? null : renderIconHint(),
           usageDialog === null ? null : renderUsageDialog(),
@@ -3950,6 +4068,87 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
             h('span', { style: { display: 'inline-flex', flex: 'none', width: 14, height: 14, color: 'var(--dsw-alias-menu-icon, #6f7377)' } },
               opening ? spinnerGlyph(12) : folderGlyph()),
             h('span', { style: { flex: 1, minWidth: 0 } }, opening ? '正在打开…' : '显示文件位置'),
+          ),
+        )
+      }
+
+      /** 工作区行的 ⋯ 菜单：目前只有「重命名」（原生同一菜单里的「在文件夹显示」「删除工作区」未接）。 */
+      function renderWorkspaceMenu() {
+        const target = wsMenu
+        return h('div', {
+          style: { ...styles.wsMenu, top: target.top, left: target.left },
+          'data-dsh-popup': '',
+          onClick: (event) => event.stopPropagation(),
+        },
+          h('button', {
+            type: 'button',
+            style: styles.pathMenuItem,
+            onClick: () => openRenameAsk(target.workspaceId, target.title),
+            onMouseEnter: (event) => { event.currentTarget.style.background = 'var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.04))' },
+            onMouseLeave: (event) => { event.currentTarget.style.background = 'transparent' },
+          },
+            h('span', { style: { ...styles.menuIconSlot, color: 'var(--dsw-alias-menu-icon, #6f7377)' } }, renameGlyph(14)),
+            h('span', { style: { flex: 1, minWidth: 0 } }, '重命名'),
+          ),
+        )
+      }
+
+      /** 重命名工作区对话框：原生 Modal（标题 + 输入框 + 取消/重命名），草稿空或未改动时确认钮禁用。 */
+      function renderRenameDialog() {
+        const draft = renameDraft.trim()
+        const blocked = renaming || draft === '' || (renameAsk !== null && draft === renameAsk.title)
+        return h('div', {
+          style: styles.permDialogOverlay,
+          onClick: (event) => { if (event.target === event.currentTarget) closeRename() },
+        },
+          h('div', {
+            style: { ...styles.permDialog, width: 'min(560px, 100%)' },
+            role: 'dialog',
+            'aria-modal': 'true',
+            'aria-label': '重命名工作区',
+          },
+            h('div', { style: { ...styles.permDialogHead, alignItems: 'center' } },
+              h('span', { style: { flex: 1 } }, '重命名工作区'),
+              h('button', {
+                type: 'button',
+                style: styles.ghostButton,
+                'aria-label': '关闭',
+                title: '关闭',
+                onClick: closeRename,
+              }, closeGlyph(12)),
+            ),
+            h('div', { style: { ...styles.permDialogBody, gap: 0 } },
+              h('input', {
+                type: 'text',
+                style: styles.renameInput,
+                value: renameDraft,
+                autoFocus: true,
+                'aria-label': '工作区名称',
+                disabled: renaming,
+                onFocus: (event) => { event.currentTarget.select() },
+                onChange: (event) => { setRenameDraft(event.target.value); setRenameError('') },
+                onKeyDown: (event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    void confirmRename()
+                  }
+                  if (event.key === 'Escape' && !renaming) {
+                    event.preventDefault()
+                    closeRename()
+                  }
+                },
+              }),
+              renameError === '' ? null : h('div', { style: styles.renameErrorText, role: 'alert' }, renameError),
+            ),
+            h('div', { style: styles.permDialogFooter },
+              h('button', { type: 'button', style: styles.permCancel, onClick: closeRename }, '取消'),
+              h('button', {
+                type: 'button',
+                style: blocked ? { ...styles.permConfirm, ...styles.permConfirmDisabled } : styles.permConfirm,
+                disabled: blocked,
+                onClick: () => void confirmRename(),
+              }, renaming ? '重命名中…' : '重命名'),
+            ),
           ),
         )
       }
@@ -5828,6 +6027,13 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       function caretRightGlyph(open) {
         return h('svg', { width: 12, height: 12, viewBox: '0 0 12 12', style: { flex: 'none', color: 'inherit', transform: open ? 'rotate(90deg)' : undefined, transition: 'transform 120ms' } },
           h('path', { d: 'M4.5 3L7.5 6L4.5 9', fill: 'none', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round', strokeLinejoin: 'round' }))
+      }
+
+      /** 菜单里的「重命名」：14px 铅笔（描边式，与原生 EditOutlineRegular 同形）。 */
+      function renameGlyph(size = 14) {
+        const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1, strokeLinecap: 'round', strokeLinejoin: 'round' }
+        return h('svg', { width: size, height: size, viewBox: '0 0 16 16', style: { flex: 'none', display: 'block', color: 'inherit' } },
+          h('path', { d: 'M10.5 3.2l2.3 2.3M3 13v-2.6L11.8 1.6l2.6 2.6L5.6 13H3Z', ...stroke }))
       }
 
       /** 「新会话」：原生 `IconNewChatOutlineRegular` 的原路径（气泡 + 十字），14px、1px 描边。 */
