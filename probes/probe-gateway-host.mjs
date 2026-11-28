@@ -1,12 +1,16 @@
 // 冒烟：只跑 Host 面的跨域网关（下载内核 → 起 no-tun 内核 → 状态 → 关闭）。
 // 用假 connection 满足 apply 的依赖，状态目录固定到 F:\data\var\dsh\remote-peers\gwtest。
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { apply } from '../index.mjs'
 
 const stateDir = process.env.RP_GW_STATE ?? join(tmpdir(), 'rp-gateway-probe')
 let handler
+
+// 内核现在是独立的一步（先下载、再启用）：探针直接指到本机已解压的那份，省下 33MB。
+mkdirSync(stateDir, { recursive: true })
+writeFileSync(join(stateDir, 'gateway.json'), `${JSON.stringify({ corePath: process.env.RP_GW_CORE ?? 'F:\\data\\var\\dsh\\remote-peers\\easytier\\2.6.4\\easytier-core.exe' }, null, 2)}\n`)
 
 const ctx = {
   typertGateway: { wireStream: async function* () {} },

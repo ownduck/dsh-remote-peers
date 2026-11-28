@@ -126,6 +126,10 @@ const ctx = {
         rpc: {
           call: async (_scope, endpoint, payload) => {
             if (endpoint === 'peers/list') return { ok: true, value: { peers } }
+            if (endpoint === 'status') {
+              return { ok: true, value: { active: 'lan', listening: true, host: '0.0.0.0', port: 35776, addresses: ['192.168.130.45 en0'], token: 't'.repeat(43), allowedCidrs: ['192.168.0.0/16'] } }
+            }
+            if (endpoint === 'gateway/status') return { ok: true, value: { enabled: false, downloaded: true, phase: 'off' } }
             if (endpoint === 'proxy' && payload?.method === 'session/list') return { ok: true, value: sessionsPayload }
             return { ok: true, value: {} }
           },
@@ -169,15 +173,19 @@ if (capturedMain === null) throw new Error('没有捕获到 main 面板渲染函
 
 let tree = await settle(capturedMain)
 let texts = textOf(tree)
+/** 文本节点是整段字符串，子串判断必须逐个找；`Array#includes` 只做全等匹配。 */
+const hasText = (needle, list = texts) => list.some((item) => String(item).includes(needle))
 console.log('管理页含「进入」:', texts.includes('进入'), '| 底部残留会话工具条:', texts.includes('分组：工作区') || texts.includes('关闭'))
-console.log('跨域网关块:', texts.includes('跨域网关'), '| 未启用态:', texts.includes('未启用'), '| 有加入入口:', texts.includes('加入'))
+console.log('连接方式块:', hasText('局域网') && hasText('跨域网关') && hasText('同一时间只启用一种连接方式'))
+console.log('两种方式的状态都在:', hasText('已启用') && (hasText('内核已安装，未启用') || hasText('未启用')))
+console.log('网关提示按已下载态给出:', hasText('内核已就绪') && !hasText('内核是独立的一步'))
 
 const enterButton = findButton(tree, '进入')
 if (enterButton === undefined) throw new Error('管理页没有找到「进入」按钮')
 enterButton.props.onClick()
 tree = await settle(capturedMain)
 texts = textOf(tree)
-console.log('进入后仍是管理页:', texts.includes('本机网关'))
+console.log('进入后连接方式区收起:', hasText('同一时间只启用一种连接方式') === false)
 console.log('主界面含「返回远程端列表」:', texts.includes('返回远程端列表'))
 console.log('主界面含「会话」标题:', texts.includes('会话'))
 
@@ -240,7 +248,8 @@ const backButton = findButton(tree, '返回远程端列表')
 if (backButton !== undefined) {
   backButton.props.onClick()
   tree = await settle(capturedMain)
-  console.log('返回后回到管理页:', textOf(tree).includes('本机网关'), '| 不再有返回按钮:', !textOf(tree).includes('返回远程端列表'))
+  const backTexts = textOf(tree)
+console.log('返回后回到管理页:', backTexts.some((item) => String(item).includes('同一时间只启用一种连接方式')), '| 不再有返回按钮:', !backTexts.includes('返回远程端列表'))
 } else {
   console.log('没有找到「返回远程端列表」按钮')
 }

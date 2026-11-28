@@ -1,6 +1,6 @@
 // 冒烟：两台「本机实例」走跨域网关对接 —— A 建网出连接码，B 粘贴加入，
 // 再由 B 经 127.0.0.1 转发口访问 A 的网关。验证 no-tun + port-forward 全链路。
-import { rmSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import net from 'node:net'
 import { join } from 'node:path'
 import { apply } from '../index.mjs'
@@ -22,7 +22,11 @@ function boot(name, port) {
     },
     effect: (fn) => fn(),
   }
-  apply(ctx, { listenHost: '127.0.0.1', listenPort: port, stateDir: join(root, name), allowedCidrs: ['127.0.0.0/8'] })
+  const dir = join(root, name)
+  // 内核是独立一步：探针直接指到本机已解压那份，避免走 33MB 下载。
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'gateway.json'), `${JSON.stringify({ corePath: process.env.RP_GW_CORE ?? 'F:\\data\\var\\dsh\\remote-peers\\easytier\\2.6.4\\easytier-core.exe' }, null, 2)}\n`)
+  apply(ctx, { listenHost: '127.0.0.1', listenPort: port, stateDir: dir, allowedCidrs: ['127.0.0.0/8'] })
   const call = async (endpoint, payload = {}) => {
     const result = await handler(endpoint, payload, undefined)
     if (result?.ok !== true) throw new Error(`${name}/${endpoint}: ${result?.error?.message ?? '失败'}`)

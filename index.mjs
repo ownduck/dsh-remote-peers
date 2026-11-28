@@ -66,6 +66,17 @@ export function apply(ctx, config = {}) {
   }
   mark(`apply start typertGateway=${ctx.get('typertGateway') !== undefined} connection=${ctx.get('connection') !== undefined}`)
   const state = loadState(settings.stateDir)
+  /** 连接方式（局域网 / 跨域网关）的落盘位置：同一时刻只启用一个，未启用时不监听。 */
+  const modesFile = join(settings.stateDir, 'modes.json')
+  const readMode = () => {
+    try {
+      const parsed = safeParse(readFileSync(modesFile, 'utf8'))
+      return parsed !== undefined && parsed !== null && (parsed.active === 'lan' || parsed.active === 'gateway') ? parsed.active : ''
+    } catch {
+      return ''
+    }
+  }
+  let activeMode = readMode()
   const connection = ctx.connection
   /** 当前共享密钥；重置时轮换，已连接的对端须重新填写。 */
   let currentToken = state.token
@@ -131,11 +142,28 @@ export function apply(ctx, config = {}) {
       if (settings.allowedCidrs.length === 0) logger.warn('remote-peers: allowedCidrs 为空，只接受 127.0.0.1')
     })
   }
-  try {
-    listen(preferredPort)
-  } catch (error) {
-    mark(`listen throw ${error?.stack ?? error}`)
+  /** 某一种连接方式启用时才监听：没有启用任何方式的本机不对外开放端口。 */
+  const listenerPort = () => (settings.listenPort !== 0 ? settings.listenPort : state.port)
+  const startListener = () => {
+    if (server.listening) return
+    try {
+      listen(listenerPort())
+    } catch (error) {
+      mark(`listen throw ${error?.stack ?? error}`)
+    }
   }
+  const stopListener = () => {
+    if (!server.listening) return
+    try { server.closeAllConnections() } catch { /* 老 Node 没有这个方法，close 之后连接也会自己断 */ }
+    server.close()
+  }
+  const waitListening = async (timeoutMs) => {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline && !server.listening) await new Promise((resolve) => setTimeout(resolve, 100))
+    return server.listening
+  }
+  if (activeMode !== '') startListener()
+  mark(`active mode ${activeMode === '' ? 'none' : activeMode}`)
 
   try {
     ctx.effect(() => () => {
@@ -314,12 +342,18 @@ export function apply(ctx, config = {}) {
         }
         case 'gateway/status':
           return ok(await gatewayStatusOf())
+        case 'gateway/download':
+          return ok(await downloadGateway())
         case 'gateway/enable':
           return ok(await enableGateway())
         case 'gateway/disable':
           return ok(await disableGateway())
         case 'gateway/join':
           return ok(await joinGateway(payload?.code))
+        case 'lan/enable':
+          return ok(await enableLan())
+        case 'lan/disable':
+          return ok(await disableLan())
         case 'diag': {
           // TEMP-DIAG：把渲染器一侧探测到的结果落到 stateDir/diag.log（渲染器 console 无处可看）。
           const line = `${new Date().toISOString()} ${JSON.stringify(payload)}\n`
@@ -359,9 +393,24 @@ export function apply(ctx, config = {}) {
   const gatewayBin = join(settings.stateDir, 'easytier', GATEWAY.version)
   const gatewayLog = join(settings.stateDir, 'easytier-core.log')
   let gateway = loadGateway(gatewayFile)
+  // 旧版只把开关存在 gateway.json 里：读到了就当成「跨域网关」已启用。
+  if (gateway.enabled && activeMode !== 'gateway') activeMode = 'gateway'
   let gatewayChild = undefined
   let gatewayPhase = 'off'
   let gatewayError = ''
+  let gatewayDownloading = false
+
+  /** 切换连接方式的唯一入口：两种方式互斥，顺带把网关开关写回自己的文件。 */
+  function settleMode(mode) {
+    activeMode = mode
+    gateway.enabled = mode === 'gateway'
+    try {
+      writeFileSync(modesFile, `${JSON.stringify({ active: mode }, null, 2)}\n`)
+    } catch (error) {
+      hostDiag(`write modes ${String(error)}`)
+    }
+    saveGateway()
+  }
 
   const gatewayExeName = () => (process.platform === 'win32' ? 'easytier-core.exe' : 'easytier-core')
   const gatewayCliName = () => (process.platform === 'win32' ? 'easytier-cli.exe' : 'easytier-cli')
@@ -604,18 +653,22 @@ export function apply(ctx, config = {}) {
     if (targets.length === 0) return
     const deadline = Date.now() + timeoutMs
     for (const peerEntry of targets) {
-      while (Date.now() < deadline) {
+      // 连续两次成功才算焐热：隧道重建后的第一条连接仍可能被掐掉。
+      let streak = 0
+      while (Date.now() < deadline && streak < 2) {
         try {
           const response = await fetch(`http://127.0.0.1:${peerEntry.port}/remote-peers/hello`, {
             headers: peerHeaders(peerEntry),
             signal: AbortSignal.timeout(4000),
           })
           await response.text().catch(() => '')
-          if (response.ok) break
+          streak = response.ok ? streak + 1 : 0
+          if (streak > 0) await new Promise((resolve) => setTimeout(resolve, 150))
         } catch {
           // 路由还没通，等一拍再来。
+          streak = 0
         }
-        await new Promise((resolve) => setTimeout(resolve, 500))
+        if (streak < 2) await new Promise((resolve) => setTimeout(resolve, 400))
       }
     }
   }
@@ -643,7 +696,7 @@ export function apply(ctx, config = {}) {
         id: state.instanceId,
         name: hostname(),
         vip: gateway.vip,
-        port: typeof address === 'object' && address !== null ? address.port : settings.listenPort,
+        port: typeof address === 'object' && address !== null ? address.port : Number(state.port) || settings.listenPort,
         token: currentToken,
       },
     }
@@ -684,6 +737,10 @@ export function apply(ctx, config = {}) {
       .map((row) => ({ vip: String(row.ipv4 ?? ''), host: String(row.hostname ?? ''), latency: String(row['lat(ms)'] ?? ''), tunnel: String(row.tunnel ?? '') }))
     return {
       enabled: gateway.enabled,
+      active: activeMode === 'gateway',
+      downloaded: corePathOf() !== undefined,
+      downloading: gatewayDownloading,
+      listening: server.listening,
       phase: gatewayPhase,
       error: gatewayError,
       vip: gateway.vip,
@@ -697,35 +754,81 @@ export function apply(ctx, config = {}) {
     }
   }
 
-  async function enableGateway() {
-    if (!gateway.enabled) {
-      gateway.enabled = true
-      if (gateway.vip === '') gateway.vip = gateway.role === 'joiner' ? pickVip() : `${GATEWAY.ipv4Prefix}1`
-      saveGateway()
-      await startCore()
-    } else if (gatewayPhase !== 'running') {
-      await startCore()
+  /** 内核是独立的一步：没点「下载内核」之前，启用/加入都先拒绝，避免让人对着一个卡死的按钮等 33MB。 */
+  function requireCore() {
+    if (corePathOf() === undefined) {
+      const error = new Error('EasyTier 内核还没下载，请先点「下载内核」')
+      error.code = 'remote-peers/kernel-missing'
+      throw error
     }
+  }
+
+  async function downloadGateway() {
+    if (gatewayDownloading) return await gatewayStatusOf()
+    gatewayDownloading = true
+    try {
+      await ensureCore()
+      gatewayError = ''
+    } catch (error) {
+      gatewayError = String(error?.message ?? error)
+      throw error
+    } finally {
+      gatewayDownloading = false
+    }
+    return await gatewayStatusOf()
+  }
+
+  async function enableGateway() {
+    requireCore()
+    // 隧道要把对端的请求落到本机这个监听口上，所以网关模式也要监听；只是局域网那一侧不再算作启用。
+    if (!server.listening) {
+      startListener()
+      await waitListening(3000)
+    }
+    settleMode('gateway')
+    if (gatewayPhase !== 'running') await startCore()
     await warmGatewayPeers(6000)
     return await gatewayStatusOf()
   }
 
   async function disableGateway() {
-    gateway.enabled = false
-    saveGateway()
+    settleMode(activeMode === 'gateway' ? '' : activeMode)
     await stopCore()
     gatewayPhase = 'off'
+    if (activeMode === '') stopListener()
     return await gatewayStatusOf()
+  }
+
+  /** 局域网连接方式：启用才监听，关闭就真的关掉端口。 */
+  async function enableLan() {
+    if (gateway.enabled) await disableGateway()
+    settleMode('lan')
+    startListener()
+    await waitListening(3000)
+    return statusOf()
+  }
+
+  async function disableLan() {
+    if (activeMode === 'lan') {
+      settleMode('')
+      stopListener()
+    }
+    return statusOf()
   }
 
   /** 把一条连接码接进来：同网络只补对端，换了网络就连内核一起换凭证重启。 */
   async function joinGateway(text) {
+    requireCore()
     const code = parseCode(text)
     if (code === undefined) throw new Error('连接码无法识别，请整段复制对方「跨域网关」里的连接码')
+    if (!server.listening) {
+      startListener()
+      await waitListening(3000)
+    }
     const sameNetwork = code.net === gateway.network.name && code.secret === gateway.network.secret
-    gateway.enabled = true
+    if (!sameNetwork) await stopCore()
+    settleMode('gateway')
     if (!sameNetwork) {
-      await stopCore()
       gateway.network = { name: code.net, secret: code.secret }
       gateway.role = 'joiner'
       if (gateway.relay.length === 0 && code.relay.length > 0) gateway.relay = code.relay
@@ -758,7 +861,7 @@ export function apply(ctx, config = {}) {
     return existing === undefined ? [...peers, entry] : peers.map((item) => (item.id === entry.id ? entry : item))
   }
 
-  if (gateway.enabled) {
+  if (activeMode === 'gateway') {
     void startCore().catch((error) => { gatewayPhase = 'error'; gatewayError = String(error?.message ?? error) })
   }
 
@@ -777,8 +880,10 @@ export function apply(ctx, config = {}) {
     const address = server.address()
     return {
       instanceId: state.instanceId,
+      active: activeMode,
+      listening: server.listening,
       host: settings.listenHost,
-      port: typeof address === 'object' && address !== null ? address.port : settings.listenPort,
+      port: typeof address === 'object' && address !== null ? address.port : Number(state.port) || settings.listenPort,
       addresses: lanAddresses(),
       allowedCidrs: settings.allowedCidrs,
       token: currentToken,
@@ -794,9 +899,16 @@ export function apply(ctx, config = {}) {
     return statusOf()
   }
 
+  /** 两种连接方式互斥：不属于当前启用方式的对端一律不发起请求。 */
+  const modeOfPeer = (peerEntry) => (peerEntry.via === 'gateway' ? 'gateway' : 'lan')
+  const peerModeOff = (peerEntry) => modeOfPeer(peerEntry) !== activeMode
+
   async function pingPeer(id, signal) {
     const peerEntry = peerById(id)
     if (peerEntry === undefined) return { ok: false, reason: 'peer-not-found' }
+    if (peerModeOff(peerEntry)) {
+      return { ok: false, reason: modeOfPeer(peerEntry) === 'gateway' ? 'gateway-off' : 'lan-off' }
+    }
     const url = `http://${peerEntry.host}:${peerEntry.port}/remote-peers/hello`
     try {
       const response = await fetch(url, {
@@ -819,10 +931,13 @@ export function apply(ctx, config = {}) {
     if (id === undefined || method === undefined) throw new Error('proxy 需要 id 与 method')
     const peerEntry = peerById(id)
     if (peerEntry === undefined) throw new Error(`未登记的对端 ${id}`)
+    if (peerModeOff(peerEntry)) {
+      throw new Error(modeOfPeer(peerEntry) === 'gateway' ? '跨域网关未启用，这个节点暂不可访问' : '局域网连接方式未启用，这个节点暂不可访问')
+    }
     if (!/^[A-Za-z0-9_$.-]+\/[A-Za-z0-9_$.-]+$/.test(method)) throw new Error(`非法端点 ${method}`)
 
     const url = `http://${peerEntry.host}:${peerEntry.port}/api/${method}`
-    const response = await fetch(url, {
+    const init = {
       method: 'POST',
       headers: { 'content-type': 'application/json', [TOKEN_HEADER]: peerEntry.token },
       body: JSON.stringify({
@@ -832,7 +947,20 @@ export function apply(ctx, config = {}) {
         payload: payload?.payload ?? { args: {} },
       }),
       signal,
-    })
+    }
+    // 网关节点走的是本机转发口：隧道刚重建时第一条连接会被当场掐掉（首跳必空），重试一次即可。
+    const attempts = peerEntry.via === 'gateway' ? 2 : 1
+    let response
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      try {
+        response = await fetch(url, init)
+        break
+      } catch (error) {
+        const last = attempt === attempts - 1
+        if (last || signal?.aborted === true) throw error
+        await new Promise((resolve) => setTimeout(resolve, 350))
+      }
+    }
     if (response.status === 401) throw new Error('对端拒绝了共享密钥')
     if (!response.ok) throw new Error(`对端返回 ${response.status}`)
     const envelope = await response.json()

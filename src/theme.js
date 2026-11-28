@@ -142,6 +142,10 @@ export const styles = {
   /** 连接码：一行等宽、过长省略，右侧留给复制钮。 */
   gatewayCode: { flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12, color: 'var(--dsw-alias-label-secondary, #4b5563)' },
   gatewayHint: { fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-label-caption, #ADB2B8)' },
+  /** 连接方式小节标题：比卡片主标题低一级，和状态文字同一行。 */
+  modeTitle: { flex: 'none', margin: 0, fontSize: 13.5, fontWeight: 500, color: 'var(--dsw-alias-label-primary, #1f2329)' },
+  /** 两种连接方式之间的分隔线：0.5px，与原生 separator 同色。 */
+  modeDivider: { flex: 'none', height: 0.5, margin: '2px 0', background: 'var(--dsw-alias-border-l2, #e3e4e6)' },
   error: { color: '#c0392b', fontSize: 12.5 },
   table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
   th: { textAlign: 'left', fontWeight: 500, opacity: 0.6, padding: '6px 8px', borderBottom: '1px solid var(--dsh-border, #e5e5e5)' },

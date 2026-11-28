@@ -84,6 +84,14 @@ DeepSeek Harness 的远端互联插件：**只做插件，不改本体**。当�
 
 ## 端点
 
+连接方式（互斥，落盘在 `<stateDir>/modes.json` 的 `active`）：
+
+- `lan/enable` / `lan/disable`：启用才监听；关闭即关端口（`status.listening` 反映真实状态）。
+- `gateway/download`：只下载解压内核，不建网、不发凭证；`gateway/enable` 与 `gateway/join`
+  在内核缺失时直接回 `remote-peers/kernel-missing`，不再顺手带 33MB 下载。
+- 启停任一种方式后，另一种自动关闭；不属于当前方式的对端在 `proxy` / `peers/ping` 里被拦下。
+  网关模式仍需本机监听口（隧道把对端请求落到这里），但局域网那一侧的节点不再出现在列表里。
+
 跨域网关（本机 RPC 面新增，`gateway/*`）：
 
 - `gateway/status` → `{ enabled, phase, vip, networkName, relay, coreReady, online[], code, forwards[] }`

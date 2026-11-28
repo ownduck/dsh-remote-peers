@@ -321,12 +321,25 @@ const markdownLabels = {
       } catch { /* 上报失败不影响界面 */ }
     }
 
+    /** 节点属于哪一种连接方式：网关接入的带 via 标记，其余都算局域网。 */
+    const peerModeOf = (peer) => (peer?.via === 'gateway' ? 'gateway' : 'lan')
+
+    /** 只取当前启用方式的节点：方式未启用时一条都不显示（左栏也只留「远程端」入口）。 */
+    function peersForMode(peers, mode) {
+      if (mode !== 'lan' && mode !== 'gateway') return []
+      return (peers ?? []).filter((peer) => peerModeOf(peer) === mode)
+    }
+
     function RemotePeersPanel(injected) {
       /** 由左栏「远程 · 机器名」入口传入：为真时直接进入该端，只显示会话区。 */
       const focusPeer = injected.focusPeer
       const onPeersChanged = injected.onPeersChanged
       const [status, setStatus] = useState(null)
       const [peers, setPeers] = useState([])
+      /** 当前启用的连接方式：'lan' / 'gateway' / ''（未启用，节点与左栏都不显示）。 */
+      const [mode, setMode] = useState('')
+      /** 局域网连接方式的启用/关闭回执。 */
+      const [lanBusy, setLanBusy] = useState('')
       /** 跨域网关状态（Host 才有）：null 表示还没读到。 */
       const [gateway, setGateway] = useState(null)
       const [gatewayInput, setGatewayInput] = useState('')
@@ -924,10 +937,11 @@ const markdownLabels = {
         try {
           const next = await call('status')
           setStatus(next)
+          setMode(next?.active === 'lan' || next?.active === 'gateway' ? next.active : '')
           tokenRef.current = typeof next?.token === 'string' ? next.token : ''
           const list = await call('peers/list')
           setPeers(list.peers ?? [])
-          if (typeof onPeersChanged === 'function') onPeersChanged(list.peers ?? [])
+          if (typeof onPeersChanged === 'function') onPeersChanged(peersForMode(list.peers ?? [], next?.active))
           // 网关状态只是附加信息：读不到不影响主清单（多半是 Host 那半还没重载到新版本）。
           await call('gateway/status').then(setGateway).catch(() => setGateway({ unavailable: true }))
           setError('')
@@ -2145,16 +2159,42 @@ const markdownLabels = {
         }
       }, [call])
 
-      /** 跨域网关动作：启用 / 关闭 / 加入都走这里，成功后顺带刷新节点清单。 */
+      /** 方式切换后重拉一遍：状态、节点清单、网关状态（左栏同步只吃当前方式的节点）。 */
+      const reload = useCallback(async () => {
+        const next = await call('status')
+        setStatus(next)
+        const active = next?.active === 'lan' || next?.active === 'gateway' ? next.active : ''
+        setMode(active)
+        const list = await call('peers/list')
+        setPeers(list.peers ?? [])
+        if (typeof onPeersChanged === 'function') onPeersChanged(peersForMode(list.peers ?? [], active))
+        await call('gateway/status').then(setGateway).catch(() => setGateway({ unavailable: true }))
+        return next
+      }, [call, onPeersChanged])
+
+      /** 局域网连接方式：启用 / 关闭。 */
+      const lanAction = useCallback(async (endpoint, busyText) => {
+        setLanBusy(busyText)
+        setError('')
+        try {
+          await call(endpoint, {})
+          await reload()
+          return true
+        } catch (failure) {
+          setError(errorText(failure))
+          return false
+        } finally {
+          setLanBusy('')
+        }
+      }, [call, reload])
+
+      /** 跨域网关动作：下载 / 启用 / 关闭 / 加入都走这里，成功后顺带刷新节点清单。 */
       const gatewayAction = useCallback(async (endpoint, payload, busyText) => {
         setGatewayBusy(busyText)
         setGatewayError('')
         try {
-          const next = await call(endpoint, payload ?? {})
-          setGateway(next)
-          const list = await call('peers/list')
-          setPeers(list.peers ?? [])
-          if (typeof onPeersChanged === 'function') onPeersChanged(list.peers ?? [])
+          await call(endpoint, payload ?? {})
+          await reload()
           return true
         } catch (failure) {
           setGatewayError(errorText(failure))
@@ -2162,7 +2202,7 @@ const markdownLabels = {
         } finally {
           setGatewayBusy('')
         }
-      }, [call, onPeersChanged])
+      }, [call, reload])
 
       /** 复制连接码：回执在按钮上，失败才弹一句话。 */
       const copyGatewayCode = useCallback(async (code) => {
@@ -2446,23 +2486,31 @@ const markdownLabels = {
           ? (focusPeer ?? null)
           : (peers.find((item) => item.id === focusNav) ?? null)
       const isFocused = focusedPeer !== null
+      /** 列表只呈现当前启用方式下的节点；方式未启用时为空。 */
+      const shownPeers = peersForMode(peers, mode)
+      const emptyText = mode === ''
+        ? '还没有启用任何连接方式。先在上方启用「局域网」或「跨域网关」，节点才会出现在这里。'
+        : mode === 'gateway'
+          ? '还没有跨域节点。在上方「跨域网关」里粘贴对方的连接码即可接入。'
+          : `还没有${PEER_NOUN}。在另一台机器装上同一插件、拿到它的地址与密钥后添加。`
 
       return h('div', { style: styles.page, 'data-remote-peers-scroll': '' },
         isFocused ? renderPeerPageHeader(focusedPeer) : null,
 
         error === '' ? null : h('div', { style: styles.error }, error),
 
-        isFocused ? null : renderLocalGateway(),
-        isFocused ? null : renderCrossDomainGateway(),
+        isFocused ? null : renderConnectionModes(),
 
         isFocused ? null : h('div', { style: styles.card },
           h('div', { style: styles.row },
             h('h3', { style: styles.title }, PEER_NOUN),
             h('div', { style: { flex: 1 } }),
-            h('button', { style: styles.primary, onClick: () => setEditing({ name: '', host: '', port: '', token: '' }) }, '添加'),
+            mode === 'lan'
+              ? h('button', { style: styles.primary, onClick: () => setEditing({ name: '', host: '', port: '', token: '' }) }, '添加')
+              : null,
           ),
-          peers.length === 0
-            ? h('div', { style: styles.muted }, `还没有${PEER_NOUN}。在另一台机器装上同一插件、拿到它的地址与密钥后添加。`)
+          shownPeers.length === 0
+            ? h('div', { style: styles.muted }, emptyText)
             : h('table', { style: styles.table },
                 h('thead', null, h('tr', null,
                   h('th', { style: styles.th }, '名称'),
@@ -2470,7 +2518,7 @@ const markdownLabels = {
                   h('th', { style: styles.th }, '状态'),
                   h('th', { style: styles.th }, ''),
                 )),
-                h('tbody', null, peers.map((peer) => h('tr', { key: peer.id },
+                h('tbody', null, shownPeers.map((peer) => h('tr', { key: peer.id },
                   h('td', { style: styles.td },
                     peer.name === undefined || peer.name === '' ? h('span', { style: styles.muted }, '（未命名）') : peer.name,
                     peer.via === 'gateway' ? h('span', { style: styles.gatewayBadge, title: '经跨域网关接入' }, '网关') : null),
@@ -2735,46 +2783,138 @@ const markdownLabels = {
        * 本机建网后把连接码给对方，对方粘贴即接入；对方给的连接码粘进来，则本机反向接入。
        * 接入的节点仍是一条普通对端记录（地址是 127.0.0.1 上的转发口），后续行为与局域网一致。
        */
-      function renderCrossDomainGateway() {
-        const enabled = gateway?.enabled === true
+      /**
+       * 「连接方式」：局域网与跨域网关二选一。
+       * 未启用任何一种时本机不监听，也就没有任何对端入口；启用后，节点清单、左栏、
+       * 会话与附件全部只走这一种方式下的节点（`peersForMode`）。
+       */
+      function renderConnectionModes() {
+        const refreshing = busy === 'status'
+        const resetting = busy === 'token'
+        const lanEnabled = mode === 'lan'
+        const lanBusyHere = lanBusy !== ''
+
         const unavailable = gateway?.unavailable === true
+        const gatewayEnabled = gateway?.enabled === true
+        const downloaded = gateway?.downloaded === true || gateway?.coreReady === true
+        const downloading = gateway?.downloading === true
         const phase = gateway?.phase ?? 'off'
         const online = (gateway?.online ?? []).length
         const code = gateway?.code ?? ''
         const busyHere = gatewayBusy !== ''
-        const statusText = unavailable
+
+        const lanStatus = lanEnabled ? '已启用' : mode === 'gateway' ? '未启用（当前为跨域网关）' : '未启用'
+        const gatewayStatus = unavailable
           ? '插件重载后可用'
-          : !enabled
-            ? '未启用'
-            : phase === 'running'
-              ? (online === 0 ? '已就绪，等待对方加入' : `已连接 ${online} 个节点`)
-              : phase === 'starting'
-                ? (gateway?.coreReady === false ? '正在准备内核（首次约 33MB）' : '正在连接虚拟网…')
-                : phase === 'error'
-                  ? '启动失败'
-                  : '未连接'
-        return h('div', { style: styles.card },
-          h('div', { style: styles.row },
-            h('h3', { style: styles.title }, '跨域网关'),
-            h('span', { style: styles.gatewayHint }, statusText),
-            h('div', { style: { flex: 1 } }),
-            enabled
+          : downloading
+            ? '正在下载内核'
+            : !downloaded
+              ? '内核未安装'
+              : !gatewayEnabled
+                ? '内核已安装，未启用'
+                : phase === 'running'
+                  ? (online === 0 ? '已就绪，等待对方加入' : `已连接 ${online} 个节点`)
+                  : phase === 'starting'
+                    ? '正在连接虚拟网…'
+                    : phase === 'error'
+                      ? '启动失败'
+                      : '未连接'
+
+        /** 一个方式的小标题行：名字 + 状态 + 右侧唯一动作钮。 */
+        const modeRow = (title, hint, action) => h('div', { style: styles.row },
+          h('h4', { style: styles.modeTitle }, title),
+          h('span', { style: styles.gatewayHint }, hint),
+          h('div', { style: { flex: 1 } }),
+          action,
+        )
+
+        const gatewayActionButton = unavailable || downloading
+          ? h('button', { style: { ...styles.primary, cursor: 'default', opacity: 0.7 }, disabled: true },
+              downloading ? h('span', { style: styles.buttonBusy }, spinnerGlyph(12), '下载中') : '启用')
+          : gatewayEnabled
+            ? h('button', {
+                style: busyHere ? { ...styles.tableAction, width: 76, cursor: 'default', opacity: 0.7 } : { ...styles.tableAction, width: 76 },
+                disabled: busyHere,
+                onClick: () => void gatewayAction('gateway/disable', {}, '关闭'),
+              }, busyHere ? h('span', { style: styles.buttonBusy }, spinnerGlyph(12), '处理中') : '关闭')
+            : !downloaded
               ? h('button', {
-                  style: busyHere ? { ...styles.tableAction, width: 76, cursor: 'default', opacity: 0.7 } : { ...styles.tableAction, width: 76 },
+                  style: busyHere ? { ...styles.primary, cursor: 'default', opacity: 0.7 } : styles.primary,
                   disabled: busyHere,
-                  onClick: () => void gatewayAction('gateway/disable', {}, '关闭'),
-                }, busyHere
-                  ? h('span', { style: styles.buttonBusy }, spinnerGlyph(12), '处理中')
-                  : '关闭')
+                  onClick: () => void gatewayAction('gateway/download', {}, '下载'),
+                }, busyHere ? h('span', { style: styles.buttonBusy }, spinnerGlyph(12), '下载中') : '下载内核')
               : h('button', {
-                  style: busyHere || unavailable ? { ...styles.primary, cursor: 'default', opacity: 0.7 } : styles.primary,
-                  disabled: busyHere || unavailable,
+                  style: busyHere ? { ...styles.primary, cursor: 'default', opacity: 0.7 } : styles.primary,
+                  disabled: busyHere,
                   onClick: () => void gatewayAction('gateway/enable', {}, '启用'),
-                }, busyHere
-                  ? h('span', { style: styles.buttonBusy }, spinnerGlyph(12), '启用中')
-                  : '启用'),
+                }, busyHere ? h('span', { style: styles.buttonBusy }, spinnerGlyph(12), '启用中') : '启用')
+
+        return h('div', { style: styles.card },
+          modeRow('局域网', lanStatus,
+            h('button', {
+              style: lanEnabled
+                ? (lanBusyHere ? { ...styles.tableAction, width: 76, cursor: 'default', opacity: 0.7 } : { ...styles.tableAction, width: 76 })
+                : (lanBusyHere ? { ...styles.primary, cursor: 'default', opacity: 0.7 } : styles.primary),
+              disabled: lanBusyHere || refreshing,
+              onClick: () => void lanAction(lanEnabled ? 'lan/disable' : 'lan/enable', lanEnabled ? '关闭' : '启用'),
+            }, lanBusyHere
+              ? h('span', { style: styles.buttonBusy }, spinnerGlyph(12), '处理中')
+              : (lanEnabled ? '关闭' : '启用')),
           ),
-          enabled
+          lanEnabled
+            ? h('div', { style: styles.row },
+                h('span', { style: styles.muted }, '监听'),
+                h('span', { style: styles.mono }, `${status?.host ?? '0.0.0.0'}:${status?.port ?? '—'}`),
+              )
+            : h('div', { style: styles.gatewayHint }, '启用后本机才开始监听，局域网里的其它机器才能用下面的地址与密钥接入。'),
+          lanEnabled
+            ? h('div', { style: styles.row },
+                h('span', { style: styles.muted }, '局域网地址'),
+                status === null || (status.addresses ?? []).length === 0
+                  ? h('span', { style: styles.mono }, '未检测到非回环网卡')
+                  : h('span', { style: styles.addressList },
+                      (status.addresses ?? []).map((item) => {
+                        const address = `${item.split(' ')[0]}:${status.port}`
+                        const done = copiedAddress === address
+                        return h('span', { key: address, style: styles.addressChip, title: item },
+                          h('span', { style: styles.mono }, address),
+                          h('button', {
+                            type: 'button',
+                            title: done ? '已复制' : '复制',
+                            'aria-label': done ? `已复制 ${address}` : `复制 ${address}`,
+                            style: done ? styles.addressCopyDone : styles.addressCopy,
+                            onClick: () => void copyAddress(address),
+                          }, done ? checkGlyph(13) : copyGlyph(13)))
+                      })),
+              )
+            : null,
+          lanEnabled
+            ? h('div', { style: styles.row },
+                h('span', { style: styles.muted }, '共享密钥'),
+                h('span', { style: { ...styles.mono, wordBreak: 'break-all' } }, tokenVisible ? token : masked),
+                h('button', { style: styles.button, onClick: () => setTokenVisible((value) => !value) }, tokenVisible ? '隐藏' : '显示'),
+                h('button', {
+                  style: tokenCopied ? styles.buttonCopied : styles.button,
+                  onClick: () => void copyToken(),
+                }, tokenCopied
+                  ? h('span', { key: 'copied', style: styles.buttonBusy }, checkGlyph(12), '已复制')
+                  : h('span', { key: 'copy', style: styles.buttonBusy }, '复制')),
+                h('button', {
+                  style: resetting ? { ...styles.button, cursor: 'default', opacity: 0.7 } : styles.button,
+                  disabled: resetting,
+                  onClick: () => setTokenResetAsk(true),
+                }, resetting ? h('span', { style: styles.buttonBusy }, spinnerGlyph(12), '重置中…') : '重置'),
+              )
+            : null,
+          lanEnabled
+            ? h('div', { style: styles.muted }, `来源白名单：${(status?.allowedCidrs ?? []).join('、')}`)
+            : null,
+
+          h('div', { style: styles.modeDivider }),
+
+          modeRow('跨域网关', gatewayStatus, gatewayActionButton),
+
+          gatewayEnabled
             ? h('div', { style: styles.row },
                 h('span', { style: styles.muted }, '虚拟地址'),
                 h('span', { style: styles.mono }, gateway?.vip === '' ? '—' : gateway.vip),
@@ -2783,7 +2923,7 @@ const markdownLabels = {
               )
             : null,
           gatewayError === '' ? null : h('div', { style: styles.error }, gatewayError),
-          enabled
+          gatewayEnabled
             ? h('div', { style: styles.row },
                 h('span', { style: styles.muted }, '连接码'),
                 h('span', { style: styles.gatewayCode, title: code }, code === '' ? '—' : code),
@@ -2801,7 +2941,8 @@ const markdownLabels = {
             h('input', {
               style: { ...styles.input, flex: '1 1 260px' },
               value: gatewayInput,
-              placeholder: '粘贴对方的连接码 DSHG1-…',
+              placeholder: downloaded ? '粘贴对方的连接码 DSHG1-…' : '先下载内核，再粘贴对方的连接码',
+              disabled: !downloaded || downloading,
               onChange: (event) => { setGatewayError(''); setGatewayInput(event.target.value) },
               onKeyDown: (event) => {
                 if (event.key !== 'Enter' || gatewayBusy !== '') return
@@ -2811,7 +2952,7 @@ const markdownLabels = {
             }),
             h('button', {
               style: gatewayBusy === '加入' ? { ...styles.primary, cursor: 'default', opacity: 0.7 } : styles.primary,
-              disabled: gatewayBusy === '加入' || gatewayInput.trim() === '' || unavailable,
+              disabled: gatewayBusy === '加入' || gatewayInput.trim() === '' || unavailable || !downloaded,
               onClick: () => void joinByCode(),
             }, gatewayBusy === '加入'
               ? h('span', { style: styles.buttonBusy }, spinnerGlyph(12), '连接中')
@@ -2819,67 +2960,15 @@ const markdownLabels = {
           ),
           h('div', { style: styles.gatewayHint }, unavailable
             ? '这一版网关接口还没在宿主里生效：重载一次插件（不必重启客户端）后即可使用。'
-            : enabled
-              ? '把上面的连接码发给对方，对方粘贴后即接入本机（对方会出现在下面的节点列表里）；粘贴对方给出的连接码，则反过来由本机接入对方。'
-              : '启用后本机加入一张虚拟网（免管理员、不建虚拟网卡），两台不同网络里的机器凭连接码即可互连。'),
-        )
-      }
-
-      function renderLocalGateway() {
-        const refreshing = busy === 'status'
-        const resetting = busy === 'token'
-        return h('div', { style: styles.card },
-          h('div', { style: styles.row },
-            h('h3', { style: styles.title }, '本机网关'),
-            h('div', { style: { flex: 1 } }),
-            h('button', {
-              style: refreshing ? { ...styles.tableAction, width: 76, cursor: 'default', opacity: 0.7 } : { ...styles.tableAction, width: 76 },
-              disabled: refreshing,
-              onClick: () => void refresh(),
-            }, refreshing
-              ? h('span', { style: styles.buttonBusy }, spinnerGlyph(12), '刷新中')
-              : '刷新'),
-          ),
-          h('div', { style: styles.row },
-            h('span', { style: styles.muted }, '监听'),
-            h('span', { style: styles.mono }, `${status?.host ?? '0.0.0.0'}:${status?.port ?? '—'}`),
-          ),
-          h('div', { style: styles.row },
-            h('span', { style: styles.muted }, '局域网地址'),
-            status === null || (status.addresses ?? []).length === 0
-              ? h('span', { style: styles.mono }, '未检测到非回环网卡')
-              : h('span', { style: styles.addressList },
-                  (status.addresses ?? []).map((item) => {
-                    const address = `${item.split(' ')[0]}:${status.port}`
-                    const done = copiedAddress === address
-                    return h('span', { key: address, style: styles.addressChip, title: item },
-                      h('span', { style: styles.mono }, address),
-                      h('button', {
-                        type: 'button',
-                        title: done ? '已复制' : '复制',
-                        'aria-label': done ? `已复制 ${address}` : `复制 ${address}`,
-                        style: done ? styles.addressCopyDone : styles.addressCopy,
-                        onClick: () => void copyAddress(address),
-                      }, done ? checkGlyph(13) : copyGlyph(13)))
-                  })),
-          ),
-          h('div', { style: styles.row },
-            h('span', { style: styles.muted }, '共享密钥'),
-            h('span', { style: { ...styles.mono, wordBreak: 'break-all' } }, tokenVisible ? token : masked),
-            h('button', { style: styles.button, onClick: () => setTokenVisible((value) => !value) }, tokenVisible ? '隐藏' : '显示'),
-            h('button', {
-              style: tokenCopied ? styles.buttonCopied : styles.button,
-              onClick: () => void copyToken(),
-            }, tokenCopied
-              ? h('span', { key: 'copied', style: styles.buttonBusy }, checkGlyph(12), '已复制')
-              : h('span', { key: 'copy', style: styles.buttonBusy }, '复制')),
-            h('button', {
-              style: resetting ? { ...styles.button, cursor: 'default', opacity: 0.7 } : styles.button,
-              disabled: resetting,
-              onClick: () => setTokenResetAsk(true),
-            }, resetting ? h('span', { style: styles.buttonBusy }, spinnerGlyph(12), '重置中…') : '重置'),
-          ),
-          h('div', { style: styles.muted }, `来源白名单：${(status?.allowedCidrs ?? []).join('、')}`),
+            : gatewayEnabled
+              ? '把上面的连接码发给对方，对方粘贴后即接入本机；粘贴对方给出的连接码，则反过来由本机接入对方。'
+              : downloading
+                ? '正在从官方发行页下载内核（约 33MB），只解压到插件私有目录。'
+                : !downloaded
+                  ? '内核是独立的一步：先下到本机，再决定启用还是用对方的连接码接入。'
+                  : '内核已就绪。启用 = 由本机建网并出码；如果对方已经建网，直接在上面粘它的连接码加入即可。'),
+          h('div', { style: styles.modeDivider }),
+          h('div', { style: styles.gatewayHint }, '同一时间只启用一种连接方式。切换时另一种会自动关闭，它的节点不会出现在列表里，记录仍保留。'),
         )
       }
 
@@ -7632,8 +7721,13 @@ const markdownLabels = {
         key: PANEL_ID,
       }, () => h(RemotePeersPanel, { api, onPeersChanged: syncPeers })))
 
-      // 启动时先取一次清单，左栏入口不必等用户打开管理页。
-      void api.call('peers/list').then((value) => syncPeers(value?.peers ?? [])).catch(() => {})
+      // 启动时先取一次「连接方式 + 清单」，左栏入口不必等用户打开管理页；只放当前方式的节点。
+      Promise.all([
+        api.call('status').catch(() => null),
+        api.call('peers/list').catch(() => null),
+      ]).then(([state, list]) => {
+        syncPeers(peersForMode(list?.peers ?? [], state?.active))
+      }).catch(() => {})
     }
 
     const inject = ['slots']

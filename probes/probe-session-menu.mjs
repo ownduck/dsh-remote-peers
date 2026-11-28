@@ -151,6 +151,8 @@ const ctx = {
         rpc: {
           call: async (_scope, endpoint, payload) => {
             if (endpoint === 'peers/list') return { ok: true, value: { peers } }
+            if (endpoint === 'status') return { ok: true, value: { active: 'lan', listening: true, host: '0.0.0.0', port: 35776, addresses: ['192.168.130.45'], token: 't'.repeat(43), allowedCidrs: [] } }
+            if (endpoint === 'gateway/status') return { ok: true, value: { enabled: false, downloaded: true, phase: 'off' } }
             // api.call 返回 Host 的 value；client 侧再从 value.result 里解对端信封（envelopeOf）。
             if (endpoint === 'proxy' && payload?.method === 'session/list') return { ok: true, value: { result: { ok: true, value: sessionsPayload } } }
             if (endpoint === 'diag') { diagCalls.push(payload); return { ok: true, value: {} } }
