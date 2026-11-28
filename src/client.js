@@ -2844,8 +2844,8 @@ const markdownLabels = {
         const rows = []
         const emit = (group, depth) => {
           const kids = children.get(group.key) ?? []
-          // 原生 `expandedGroups`：显式开过的按开；没动过的，有子级的默认展开、叶子默认收起
-          const open = sessionTreeOpen[group.key] ?? kids.length > 0
+          // 与 `renderTreeFolder` 同一口径：没点过就是展开（用户要求树默认全展开，不套原生「叶子收起」）
+          const open = sessionTreeOpen[group.key] !== false
           rows.push(...folderRows(group, depth, open))
           if (!open) return
           for (const child of kids) emit(child, depth + 1)
