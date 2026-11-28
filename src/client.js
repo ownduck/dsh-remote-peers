@@ -837,14 +837,20 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       plusHint: { flex: 1, minWidth: 0, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', textAlign: 'right', color: T.ter, fontSize: 12, lineHeight: '18px' },
       /* 待发附件行：原生 `ComposerAttachments .rail` —— 2px 10px 顶距、10px 间距、横向滚动
          （卡片 flex gap 12 会顺手把它和草稿拉开，往上回 6px）。 */
-      attachRail: { minWidth: 0, display: 'flex', alignItems: 'stretch', gap: 10, padding: '10px 10px 0', marginBottom: -6, overflowX: 'auto', overflowY: 'hidden', scrollbarWidth: 'none' },
+      attachRail: { minWidth: 0, display: 'flex', alignItems: 'stretch', gap: 10, padding: '2px 10px 0', marginBottom: -6, overflowX: 'auto', overflowY: 'hidden', scrollbarWidth: 'none' },
       /* 图片草稿：原生 `.imageItem` 64×64（缩略图 64 圆角 xl、右上 18px ✕、底部 2px 进度） */
       attachImageItem: { position: 'relative', flex: 'none', width: 64, height: 64 },
       attachThumb: { boxSizing: 'border-box', width: 64, height: 64, padding: 0, overflow: 'hidden', border: '0.5px solid var(--dsw-alias-border-l2-darkmode-thin, #ececec)', borderRadius: 'var(--dsw-radius-xl, 16px)', background: 'var(--dsw-alias-interactive-bg-hover, #f5f5f7)', cursor: 'zoom-in' },
       attachThumbImg: { display: 'block', width: '100%', height: '100%', objectFit: 'cover' },
+      /* 失败图整体压暗（原生 `.thumbnailFailed img` opacity .4） */
+      attachThumbImgDim: { opacity: 0.4 },
       attachThumbFailed: { cursor: 'pointer', borderColor: 'var(--dsw-alias-state-error-primary, #e5484d)' },
-      attachFailureGlyph: { position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', color: 'var(--dsw-alias-state-error-primary, #e5484d)', fontSize: 15, pointerEvents: 'none' },
-      attachRemove: { position: 'absolute', top: 4, right: 4, zIndex: 1, display: 'grid', placeItems: 'center', width: 18, height: 18, padding: 0, border: 'none', borderRadius: '50%', cornerShape: 'round', background: 'var(--dsw-alias-button-contrast-fill, rgba(0,0,0,0.55))', color: 'var(--dsw-alias-label-primary-inverted, #fff)', fontSize: 11, lineHeight: 1, cursor: 'pointer' },
+      /* 失败图标盖在缩略图正中（原生 `.failureGlyph` inset 0 + place-items center） */
+      attachFailureGlyph: { position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', color: 'var(--dsw-alias-state-error-primary, #e5484d)', pointerEvents: 'none' },
+      /* 缩略图的 ✕：18px、内缩 4px、默认透明，悬停整块才浮出来（原生 `.remove`） */
+      attachRemove: { position: 'absolute', top: 4, right: 4, zIndex: 1, display: 'grid', placeItems: 'center', width: 18, height: 18, padding: 0, border: 'none', borderRadius: '50%', cornerShape: 'round', background: 'var(--dsw-alias-button-contrast-fill, rgba(0,0,0,0.55))', color: 'var(--dsw-alias-label-primary-inverted, #fff)', opacity: 0, cursor: 'pointer', transition: 'opacity 0.2s ease-in-out' },
+      attachRemoveShown: { opacity: 1 },
+      attachRemoveFailed: { opacity: 1, background: 'var(--dsw-alias-state-error-primary, #e5484d)', color: 'var(--dsw-alias-label-on-color, #fff)' },
       /* 文件草稿：原生 `FileCard` 240×64、0.5px l2 描边、lg 圆角、28px 图标位 */
       attachFileCard: { position: 'relative', boxSizing: 'border-box', flex: 'none', display: 'inline-flex', alignItems: 'center', gap: 10, width: 240, height: 64, padding: '0 12px', border: '0.5px solid var(--dsw-alias-border-l2, #e3e4e6)', borderRadius: 'var(--dsw-radius-lg, 10px)', background: 'var(--dsw-specific-input-major, #fff)', textAlign: 'left' },
       attachFileCardFailed: { borderColor: 'var(--dsw-alias-state-error-primary, #e5484d)' },
@@ -855,6 +861,8 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       attachFileName: { overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', color: 'var(--dsw-alias-label-primary, #1f2328)', fontSize: 14, fontWeight: 500, lineHeight: '22px' },
       attachFileMeta: { overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', color: 'var(--dsw-alias-label-tertiary, #8f9399)', fontSize: 12, lineHeight: '15px' },
       attachFileMetaFailed: { color: 'var(--dsw-alias-state-error-primary, #e5484d)' },
+      /* 文件卡的 ✕：内缩 6px（原生 `FileCard .remove`），失败时整颗变红且常显 */
+      attachFileRemove: { position: 'absolute', top: 6, right: 6, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 18, height: 18, padding: 0, border: 'none', borderRadius: '50%', cornerShape: 'round', background: 'var(--dsw-alias-button-contrast-fill, rgba(0,0,0,0.55))', color: 'var(--dsw-alias-label-primary-inverted, #fff)', opacity: 0, cursor: 'pointer', transition: 'opacity 0.2s ease-in-out' },
       /* 进度条：缩略图内距 8/6，文件卡内距 12/5（原生两处各自的值） */
       attachThumbProgress: { position: 'absolute', left: 8, right: 8, bottom: 6, height: 2, overflow: 'hidden', borderRadius: 1, background: 'var(--dsw-specific-file-upload-track, #ececec)', pointerEvents: 'none' },
       attachFileProgress: { position: 'absolute', left: 12, right: 12, bottom: 5, height: 2, overflow: 'hidden', borderRadius: 1, background: 'var(--dsw-specific-file-upload-track, #ececec)' },
@@ -6569,23 +6577,65 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
             : h(StagedFile, { key: file.id, file, onRemove: dropStaged, onRetry: retryStaged }))))
       }
 
-      /** 缩略图与文件卡右上角共用的 18px 移除钮。 */
-      function stagedRemoveButton(file, onRemove) {
+      /** 12px 细叉：原生 `IconCloseFillRegular` 的尺寸与观感（静止时透明、悬停才露出来）。 */
+      function closeGlyph(size = 12) {
+        return h('svg', { width: size, height: size, viewBox: '0 0 16 16', 'aria-hidden': 'true', style: { display: 'block' } },
+          h('path', {
+            d: 'M3.4 3.4 12.6 12.6M12.6 3.4 3.4 12.6',
+            fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round',
+          }))
+      }
+
+      /** 16px 三角警告：对端明说拒绝了这份附件时盖在缩略图正中。 */
+      function warningGlyph(size = 16) {
+        return h('svg', { width: size, height: size, viewBox: '0 0 16 16', 'aria-hidden': 'true', style: { display: 'block' } },
+          h('path', { d: 'M8 2.4 14.4 13.2H1.6Z', fill: 'none', stroke: 'currentColor', strokeWidth: 1.3 }),
+          h('path', { d: 'M8 6.2v3.2', stroke: 'currentColor', strokeWidth: 1.3 }),
+          h('circle', { cx: 8, cy: 11.3, r: 0.85, fill: 'currentColor' }))
+      }
+
+      /** 16px 重试箭头：普通上传失败时盖在缩略图正中。 */
+      function retryGlyph(size = 16) {
+        return h('svg', { width: size, height: size, viewBox: '0 0 16 16', 'aria-hidden': 'true', style: { display: 'block' } },
+          h('path', { d: 'M13 8a5 5 0 1 1-1.5-3.6', fill: 'none', stroke: 'currentColor', strokeWidth: 1.3 }),
+          h('path', { d: 'M13.2 2.4v3.4h-3.4', fill: 'none', stroke: 'currentColor', strokeWidth: 1.3 }))
+      }
+
+      /**
+       * 移除钮：静止透明，缩略图/文件卡悬停或按钮自身聚焦才出现（原生 `AttachmentRail .remove`），
+       * 失败态整颗转红并常显（原生 `FileCard .removeFailed`）。
+       * @param file - 待发附件
+       * @param onRemove - 移除回调
+       * @param options - `{ shown, failed, fileCard, onReveal }`
+       */
+      function stagedRemoveButton(file, onRemove, options) {
+        const base = options.fileCard === true ? styles.attachFileRemove : styles.attachRemove
+        const style = options.failed === true
+          ? { ...base, ...styles.attachRemoveFailed }
+          : (options.shown === true ? { ...base, ...styles.attachRemoveShown } : base)
         return h('button', {
           type: 'button',
-          style: styles.attachRemove,
+          style,
           title: '移除',
           'aria-label': `移除 ${file.name}`,
+          onFocus: () => options.onReveal(true),
+          onBlur: () => options.onReveal(false),
           onClick: () => onRemove(file.id),
-        }, '✕')
+        }, closeGlyph(12))
       }
 
       /** 一张图片草稿：缩略图 + 上传失败可点重试 + 点开原生灯箱。 */
       function StagedImage({ file, onRemove, onRetry }) {
         const [open, setOpen] = useState(false)
+        /* 悬停整块才露出 ✕（触屏没有 hover，失败态另行常显） */
+        const [revealed, setRevealed] = useState(false)
         const failed = file.status === 'error'
         return h(react.Fragment, null,
-          h('div', { style: styles.attachImageItem },
+          h('div', {
+            style: styles.attachImageItem,
+            onMouseEnter: () => setRevealed(true),
+            onMouseLeave: () => setRevealed(false),
+          },
             h('button', {
               type: 'button',
               style: failed ? { ...styles.attachThumb, ...styles.attachThumbFailed } : styles.attachThumb,
@@ -6593,14 +6643,22 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
               'aria-label': failed ? `重试上传 ${file.name}` : `查看 ${file.name}`,
               onClick: () => { if (failed) onRetry(file); else setOpen(true) },
             },
-              h('img', { src: file.previewUrl, alt: file.name, draggable: false, style: styles.attachThumbImg }),
-              failed ? h('span', { style: styles.attachFailureGlyph, 'aria-hidden': 'true' }, '!') : null,
+              h('img', {
+                src: file.previewUrl,
+                alt: file.name,
+                draggable: false,
+                style: failed ? { ...styles.attachThumbImg, ...styles.attachThumbImgDim } : styles.attachThumbImg,
+              }),
+              failed
+                ? h('span', { style: styles.attachFailureGlyph, 'aria-hidden': 'true' },
+                    file.error === '' ? retryGlyph(16) : warningGlyph(16))
+                : null,
             ),
             file.status === 'uploading'
               ? h('span', { style: styles.attachThumbProgress, 'aria-hidden': 'true' },
                   h('span', { style: styles.attachProgressBar }))
               : null,
-            stagedRemoveButton(file, onRemove),
+            stagedRemoveButton(file, onRemove, { shown: revealed, failed, onReveal: setRevealed }),
           ),
           open ? h(ImageLightbox, { url: file.previewUrl, alt: file.name, onClose: () => setOpen(false) }) : null,
         )
@@ -6608,6 +6666,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
 
       /** 一份文件草稿：原生 `FileCard`（图标位 28、14/22 名字、12/15 大小；失败描边转红并可点重试）。 */
       function StagedFile({ file, onRemove, onRetry }) {
+        const [revealed, setRevealed] = useState(false)
         const failed = file.status === 'error'
         const uploading = file.status === 'uploading'
         const extension = String(file.name).split('.').pop() ?? ''
@@ -6619,6 +6678,8 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         return h('div', {
           style: failed ? { ...styles.attachFileCard, ...styles.attachFileCardFailed } : styles.attachFileCard,
           title: file.name,
+          onMouseEnter: () => setRevealed(true),
+          onMouseLeave: () => setRevealed(false),
         },
           h('span', { style: styles.attachFileIcon }, uploading ? h('span', { style: styles.attachFileSpinner }) : fileGlyph(18)),
           failed
@@ -6628,7 +6689,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
             : h('span', { style: styles.attachFileBody },
                 h('span', { style: styles.attachFileName }, file.name),
                 h('span', { style: styles.attachFileMeta }, meta)),
-          stagedRemoveButton(file, onRemove),
+          stagedRemoveButton(file, onRemove, { shown: revealed, failed, fileCard: true, onReveal: setRevealed }),
           uploading
             ? h('span', { style: styles.attachFileProgress, 'aria-hidden': 'true' }, h('span', { style: styles.attachProgressBar }))
             : null,
