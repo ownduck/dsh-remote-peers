@@ -1661,9 +1661,9 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       /** 浮层（卡片 caret 菜单、「本轮用量」、「底部统计」）点空白或按 Esc 关闭。 */
       useDismiss(pathMenu !== null, () => setPathMenu(null))
       useDismissOutside(wsMenu !== null, () => setWsMenu(null))
-      useDismiss(viewMenu !== null, () => setViewMenu(null))
-      useDismiss(usageDialog !== null, () => setUsageDialog(null))
-      useDismiss(statDialog !== null, () => setStatDialog(null))
+      useDismissOutside(viewMenu !== null, () => setViewMenu(null))
+      useDismissOutside(usageDialog !== null, () => setUsageDialog(null))
+      useDismissOutside(statDialog !== null, () => setStatDialog(null))
 
       /**
        * 本轮改动摘要：`workspace/changes` 只给出 seq，摘要要按 seq 去对端取
@@ -3631,6 +3631,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
               type: 'button',
               style: viewMenu === null ? styles.ghostIconTool : { ...styles.ghostIconTool, ...styles.ghostIconToolActive },
               'aria-label': '视图选项',
+              'data-rp-anchor': '',
               ...hintOf('视图选项'),
               onClick: (event) => {
                 // 别让这次点击冒泡到 window，否则 useDismiss 挂上的空白点击会立刻关掉刚开的浮层
@@ -4756,6 +4757,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
                   ? { ...styles.usagePill, ...styles.usagePillHover }
                   : styles.usagePill,
                 'aria-haspopup': 'dialog',
+                'data-rp-anchor': '',
                 'aria-expanded': usageDialog !== null && usageDialog.turn === usage.turn,
                 onMouseEnter: (event) => {
                   event.currentTarget.style.background = 'var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.05))'
@@ -4763,6 +4765,8 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
                 onMouseLeave: (event) => { event.currentTarget.style.background = 'transparent' },
                 onClick: (event) => {
                   event.stopPropagation()
+                  // 同一时刻只留一个浮层：底部统计浮层先关掉
+                  setStatDialog(null)
                   const rect = event.currentTarget.getBoundingClientRect()
                   setUsageDialog((current) => (current !== null && current.turn === usage.turn
                     ? null
@@ -7608,6 +7612,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
                 type: 'button',
                 style: pillStyle('activity'),
                 'aria-haspopup': 'dialog',
+                'data-rp-anchor': '',
                 'aria-expanded': statDialog !== null && statDialog.kind === 'activity',
                 onClick: (event) => openStatDialog('activity', event),
                 ...pillHover('activity'),
@@ -7622,6 +7627,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
                 type: 'button',
                 style: pillStyle('usage'),
                 'aria-haspopup': 'dialog',
+                'data-rp-anchor': '',
                 'aria-expanded': statDialog !== null && statDialog.kind === 'usage',
                 onClick: (event) => openStatDialog('usage', event),
                 ...pillHover('usage'),
@@ -7635,6 +7641,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
                 style: pillStyle('context'),
                 'aria-label': `上下文已用 ${contextUsed}%`,
                 'aria-haspopup': 'dialog',
+                'data-rp-anchor': '',
                 'aria-expanded': statDialog !== null && statDialog.kind === 'context',
                 onMouseEnter: (event) => {
                   const rect = event.currentTarget.getBoundingClientRect()
@@ -7673,9 +7680,10 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         }
       }
 
-      /** 打开统计浮层：锚在药丸上方 8px、左缘跟随药丸并 clamp 在窗口内。 */
+      /** 打开统计浮层：锚在药丸上方 8px、左缘跟随药丸并 clamp 在窗口内。同一时刻只留一个浮层（另一个先关）。 */
       function openStatDialog(kind, event) {
         event.stopPropagation()
+        setUsageDialog(null)
         const rect = event.currentTarget.getBoundingClientRect()
         setStatDialog((current) => (current !== null && current.kind === kind
           ? null
