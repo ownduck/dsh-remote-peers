@@ -137,6 +137,11 @@ export const styles = {
   addressChip: { display: 'inline-flex', alignItems: 'center', gap: 2, minWidth: 0 },
   addressCopy: { flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 20, height: 20, padding: 0, border: 'none', borderRadius: 6, background: 'transparent', color: T.ter, cursor: 'pointer', lineHeight: 1 },
   addressCopyDone: { flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 20, height: 20, padding: 0, border: 'none', borderRadius: 6, background: 'transparent', color: '#1a7f37', cursor: 'default', lineHeight: 1, animation: 'dsh-rp-copied 260ms ease-out', transformOrigin: 'center' },
+  /** 列表里来自跨域网关的节点：名字后面挂一个小角标，不占地址列。 */
+  gatewayBadge: { flex: 'none', display: 'inline-flex', alignItems: 'center', height: 18, padding: '0 5px', marginLeft: 6, borderRadius: 4, background: 'var(--dsw-alias-fill-tag, #eef1f6)', color: 'var(--dsw-alias-label-tertiary, #8a8f98)', fontSize: 11, lineHeight: '18px' },
+  /** 连接码：一行等宽、过长省略，右侧留给复制钮。 */
+  gatewayCode: { flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12, color: 'var(--dsw-alias-label-secondary, #4b5563)' },
+  gatewayHint: { fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-label-caption, #ADB2B8)' },
   error: { color: '#c0392b', fontSize: 12.5 },
   table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
   th: { textAlign: 'left', fontWeight: 500, opacity: 0.6, padding: '6px 8px', borderBottom: '1px solid var(--dsh-border, #e5e5e5)' },

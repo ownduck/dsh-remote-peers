@@ -3,10 +3,11 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { appendFileSync, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { appendFileSync, chmodSync, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
-import { networkInterfaces } from 'node:os'
-import { basename, join } from 'node:path'
+import { createServer as createTcpServer } from 'node:net'
+import { hostname, networkInterfaces } from 'node:os'
+import { basename, dirname, join } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { pathToFileURL } from 'node:url'
@@ -25,6 +26,16 @@ const DEFAULTS = Object.freeze({
 
 /** 单请求体上限，与 DSH 自己的 HTTP 载体一致（聚合图片 200 MiB 的 base64 余量）。 */
 const MAX_REQUEST_BODY_BYTES = 300 * 1024 * 1024
+
+/** 跨域网关（EasyTier）的固定口径：内核版本、默认中继、虚拟网段与本地端口池。 */
+const GATEWAY = Object.freeze({
+  version: '2.6.4',
+  relay: 'tcp://easytier.weiai.org.cn:11010',
+  ipv4Prefix: '10.126.126.',
+  listenPort: 11010,
+  rpcPort: 25890,
+  forwardBase: 36001,
+})
 
 /** 空的 Client→Host 上行：普通 Remote 流不读它，只有 Gateway 自有端点才会消费。 */
 const EMPTY_UPLINK = Object.freeze({
@@ -176,6 +187,11 @@ export function apply(ctx, config = {}) {
           if (id === undefined) return fail('remote-peers/bad-request', '需要 id')
           peers = peers.filter((item) => item.id !== id)
           writePeers(peersFile, peers)
+          if (gateway.forwards[id] !== undefined) {
+            delete gateway.forwards[id]
+            saveGateway()
+            if (gatewayPhase === 'running') void restartCore().catch((failure) => hostDiag(`gateway restart ${String(failure)}`))
+          }
           return ok({ peers })
         }
         case 'peers/ping':
@@ -189,10 +205,10 @@ export function apply(ctx, config = {}) {
           const source = typeof payload?.path === 'string' ? payload.path : ''
           if (!isAbsoluteFsPath(source)) return fail('remote-peers/bad-path', '需要绝对文件路径')
           const sessionId = typeof payload?.sessionId === 'string' ? payload.sessionId : ''
-              const probe = await remoteProbeOf(peerEntry, source, sessionId, signal)
-              if (probe.missing === true) missing[source] = true
-              sizes[source] = typeof probe.size === 'number' && probe.size > 0 ? probe.size : null
+          const probe = await remoteProbeOf(peerEntry, source, sessionId, signal)
+          const size = typeof probe.size === 'number' && probe.size > 0 ? probe.size : undefined
           hostDiag(`size host ${source} session=${sessionId === '' ? '-' : sessionId} -> ${String(size ?? 'unknown')}`)
+          if (probe.missing === true) return fail('remote-peers/file-missing', '对端上没有这份文件（可能已被清理或移动）')
           if (size === undefined) return fail('remote-peers/size-unknown', '对端没有给出文件大小')
           return ok({ size })
         }
@@ -296,6 +312,14 @@ export function apply(ctx, config = {}) {
           liveTransfers.delete(target.key)
           return ok({ cancelled: target.key })
         }
+        case 'gateway/status':
+          return ok(await gatewayStatusOf())
+        case 'gateway/enable':
+          return ok(await enableGateway())
+        case 'gateway/disable':
+          return ok(await disableGateway())
+        case 'gateway/join':
+          return ok(await joinGateway(payload?.code))
         case 'diag': {
           // TEMP-DIAG：把渲染器一侧探测到的结果落到 stateDir/diag.log（渲染器 console 无处可看）。
           const line = `${new Date().toISOString()} ${JSON.stringify(payload)}\n`
@@ -327,6 +351,427 @@ export function apply(ctx, config = {}) {
     }
   }
   registerChannel()
+
+  // ── 跨域网关（EasyTier，免管理员）────────────────────────────────────
+  // 内核以 `--no-tun` 运行：不建虚拟网卡、不请求提权，节点之间仍可用虚拟 IP 互相访问；
+  // 本机再用 `--port-forward` 把每个网关节点的网关端口提到 127.0.0.1，既有 RPC 只认 host:port。
+  const gatewayFile = join(settings.stateDir, 'gateway.json')
+  const gatewayBin = join(settings.stateDir, 'easytier', GATEWAY.version)
+  const gatewayLog = join(settings.stateDir, 'easytier-core.log')
+  let gateway = loadGateway(gatewayFile)
+  let gatewayChild = undefined
+  let gatewayPhase = 'off'
+  let gatewayError = ''
+
+  const gatewayExeName = () => (process.platform === 'win32' ? 'easytier-core.exe' : 'easytier-core')
+  const gatewayCliName = () => (process.platform === 'win32' ? 'easytier-cli.exe' : 'easytier-cli')
+
+  /** 内核可执行文件：用户指定的路径优先，其次是自己解压的那份。 */
+  const corePathOf = () => {
+    if (gateway.corePath !== '' && existsSync(gateway.corePath)) return gateway.corePath
+    const local = join(gatewayBin, gatewayExeName())
+    return existsSync(local) ? local : undefined
+  }
+
+  const cliPathOf = () => {
+    const core = corePathOf()
+    return core === undefined ? undefined : join(dirname(core), gatewayCliName())
+  }
+
+  function loadGateway(file) {
+    const base = {
+      enabled: false,
+      role: 'host',
+      network: { name: '', secret: '' },
+      relay: [GATEWAY.relay],
+      vip: '',
+      listenPort: GATEWAY.listenPort,
+      rpcPort: GATEWAY.rpcPort,
+      corePath: '',
+      forwards: {},
+      pid: 0,
+    }
+    const parsed = existsSync(file) ? safeParse(readFileSync(file, 'utf8')) : undefined
+    if (parsed === null || typeof parsed !== 'object') return base
+    return {
+      ...base,
+      enabled: parsed.enabled === true,
+      role: parsed.role === 'joiner' ? 'joiner' : 'host',
+      network: { name: String(parsed.network?.name ?? ''), secret: String(parsed.network?.secret ?? '') },
+      relay: Array.isArray(parsed.relay) && parsed.relay.length > 0 ? parsed.relay.map(String) : base.relay,
+      vip: typeof parsed.vip === 'string' ? parsed.vip : '',
+      listenPort: Number(parsed.listenPort) || GATEWAY.listenPort,
+      rpcPort: Number(parsed.rpcPort) || GATEWAY.rpcPort,
+      corePath: typeof parsed.corePath === 'string' ? parsed.corePath : '',
+      forwards: parsed.forwards !== null && typeof parsed.forwards === 'object' ? parsed.forwards : {},
+      pid: Number(parsed.pid) || 0,
+    }
+  }
+
+  function saveGateway() {
+    writeFileSync(gatewayFile, `${JSON.stringify(gateway, null, 2)}\n`)
+  }
+
+  /** 本机在这个虚拟网里的地址：建网一方固定 .1，加入方按实例 id 散列到 .20–.219。 */
+  function pickVip() {
+    const digest = createHash('sha1').update(state.instanceId).digest('hex')
+    return `${GATEWAY.ipv4Prefix}${(parseInt(digest.slice(0, 6), 16) % 200) + 20}`
+  }
+
+  function allocateForward(peerId) {
+    const existing = gateway.forwards[peerId]
+    if (existing !== undefined && Number(existing.local) > 0) return Number(existing.local)
+    const used = new Set(Object.values(gateway.forwards).map((forward) => Number(forward.local)))
+    let port = GATEWAY.forwardBase
+    while (used.has(port)) port += 1
+    return port
+  }
+
+  function coreArgs() {
+    const args = [
+      '--no-tun',
+      '-i', gateway.vip,
+      '--network-name', gateway.network.name,
+      '--network-secret', gateway.network.secret,
+      '-l', String(gateway.listenPort),
+      '--rpc-portal', `127.0.0.1:${gateway.rpcPort}`,
+    ]
+    for (const relay of gateway.relay) if (relay.trim() !== '') args.push('-p', relay.trim())
+    for (const forward of Object.values(gateway.forwards)) {
+      args.push('--port-forward', `tcp://127.0.0.1:${forward.local}/${forward.vip}:${forward.remote}`)
+    }
+    return args
+  }
+
+  /** 跑一条命令并收齐输出（超时直接杀掉，不让状态查询挂住面板）。 */
+  function runCommand(command, args, timeoutMs) {
+    return new Promise((resolve) => {
+      const child = spawn(command, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
+      let stdout = ''
+      let stderr = ''
+      const timer = setTimeout(() => { try { child.kill() } catch { /* 已退出 */ } }, timeoutMs)
+      child.stdout?.on('data', (chunk) => { stdout += String(chunk) })
+      child.stderr?.on('data', (chunk) => { stderr += String(chunk) })
+      child.on('error', (error) => { clearTimeout(timer); resolve({ code: -1, stdout, stderr: String(error) }) })
+      child.on('close', (code) => { clearTimeout(timer); resolve({ code: code ?? -1, stdout, stderr }) })
+    })
+  }
+
+  function releaseAssetOf() {
+    const os = process.platform === 'win32' ? 'windows' : process.platform === 'linux' ? 'linux' : process.platform === 'darwin' ? 'macos' : undefined
+    const arch = process.arch === 'arm64' ? 'arm64' : process.arch === 'x64' ? 'x86_64' : undefined
+    if (os === undefined || arch === undefined) return undefined
+    const tag = `v${GATEWAY.version}`
+    return `https://github.com/EasyTier/EasyTier/releases/download/${tag}/easytier-${os}-${arch}-${tag}.zip`
+  }
+
+  /** 内核缺失时就地下载并摊平解压（首次 33MB，之后直接用）。 */
+  async function ensureCore() {
+    const ready = corePathOf()
+    if (ready !== undefined) return ready
+    const asset = releaseAssetOf()
+    if (asset === undefined) throw new Error(`本平台（${process.platform}/${process.arch}）没有可自动下载的 EasyTier 内核，请手动放一份 easytier-core 到 ${gatewayBin}`)
+    logger.info('remote-peers: 首次启用跨域网关，下载 EasyTier 内核 %s', asset)
+    mkdirSync(gatewayBin, { recursive: true })
+    const zip = join(gatewayBin, 'easytier.zip')
+    const response = await fetch(asset, { redirect: 'follow' })
+    if (!response.ok) throw new Error(`下载 EasyTier 内核失败 HTTP ${response.status}`)
+    await pipeline(Readable.fromWeb(response.body), createWriteStream(zip))
+    const unpacked = join(gatewayBin, 'unpack')
+    rmSync(unpacked, { recursive: true, force: true })
+    mkdirSync(unpacked, { recursive: true })
+    const untar = await runCommand('tar', ['-xf', zip, '-C', unpacked], 180000)
+    if (untar.code !== 0) throw new Error(`解压 EasyTier 内核失败：${untar.stderr.trim() === '' ? untar.code : untar.stderr.trim()}`)
+    for (const name of safeReaddir(unpacked)) {
+      const inner = join(unpacked, name)
+      if (!statSync(inner).isDirectory()) continue
+      for (const file of safeReaddir(inner)) {
+        const target = join(gatewayBin, file)
+        if (existsSync(target)) continue
+        try { renameSync(join(inner, file), target) } catch { /* 个别文件（如驱动）可能被占用，跳过 */ }
+      }
+    }
+    rmSync(zip, { force: true })
+    rmSync(unpacked, { recursive: true, force: true })
+    const exe = join(gatewayBin, gatewayExeName())
+    if (!existsSync(exe)) throw new Error('解压后没有找到 easytier-core')
+    if (process.platform !== 'win32') {
+      try { chmodSync(exe, 0o755) } catch { /* 拿不到执行位就交给用户手动 chmod */ }
+    }
+    return exe
+  }
+
+  function pidAlive(pid) {
+    if (!Number.isInteger(pid) || pid <= 0) return false
+    try { process.kill(pid, 0); return true } catch { return false }
+  }
+
+  /** 等内核的 RPC 门户能答出本机虚拟 IP。 */
+  async function waitCoreReady(timeoutMs) {
+    const cli = cliPathOf()
+    if (cli === undefined) return false
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      const probe = await runCommand(cli, ['--rpc-portal', `127.0.0.1:${gateway.rpcPort}`, 'node'], 4000)
+      if (probe.code === 0 && probe.stdout.includes(gateway.vip)) return true
+      await new Promise((resolve) => setTimeout(resolve, 400))
+    }
+    return false
+  }
+
+  /** 本机是否还空着这个端口：同一台机器跑两个网关（例如本机既建网又加入别的网）时不撞车。
+      探测必须绑在本工具真实使用的地址上：EasyTier 监听 0.0.0.0，RPC 门户只绑回环。 */
+  function freePort(preferred, span, host) {
+    return new Promise((resolve) => {
+      const probe = (port, left) => {
+        const server = createTcpServer()
+        server.once('error', () => {
+          if (left <= 0) resolve(preferred)
+          else probe(port + 1, left - 1)
+        })
+        server.once('listening', () => server.close(() => resolve(port)))
+        server.listen(port, host)
+      }
+      probe(preferred, span)
+    })
+  }
+
+  async function startCore() {
+    if (gateway.network.name === '') {
+      gateway.network = { name: `dsh-${randomBytes(4).toString('hex')}`, secret: randomBytes(24).toString('base64url') }
+    }
+    if (gateway.vip === '') gateway.vip = gateway.role === 'joiner' ? pickVip() : `${GATEWAY.ipv4Prefix}1`
+    // 上次 apply 起的内核还活着：接管它，不起第二个进程。
+    if (gatewayChild === undefined && pidAlive(gateway.pid)) {
+      gatewayPhase = 'starting'
+      if (await waitCoreReady(3000)) { gatewayPhase = 'running'; gatewayError = ''; return }
+      await stopCore()
+    }
+    // 端口只有在自己起进程时挑：接管时沿用内核实际占用的那个。
+    gateway.listenPort = await freePort(gateway.listenPort, 8, '0.0.0.0')
+    gateway.rpcPort = await freePort(gateway.rpcPort, 8, '127.0.0.1')
+    saveGateway()
+    gatewayPhase = 'starting'
+    gatewayError = ''
+    const core = await ensureCore()
+    mkdirSync(settings.stateDir, { recursive: true })
+    const sink = createWriteStream(gatewayLog, { flags: 'a' })
+    // spawn 需要已经打开的文件描述符：等流 open 之后再交给它。
+    await new Promise((resolve) => { sink.once('open', resolve); sink.once('error', resolve) })
+    const child = spawn(core, coreArgs(), { windowsHide: true, stdio: ['ignore', sink, sink] })
+    gatewayChild = child
+    gateway.pid = child.pid ?? 0
+    saveGateway()
+    child.on('exit', (code) => {
+      if (gatewayChild !== child) return
+      gatewayChild = undefined
+      hostDiag(`easytier-core exit ${String(code)}`)
+      if (!gateway.enabled) { gatewayPhase = 'off'; return }
+      gatewayPhase = 'starting'
+      // 崩了就拉一次；这次还起不来就把错误留在状态里等用户点。
+      setTimeout(() => {
+        if (!gateway.enabled || gatewayChild !== undefined) return
+        void startCore().catch((error) => { gatewayPhase = 'error'; gatewayError = String(error?.message ?? error) })
+      }, 2000)
+    })
+    if (!(await waitCoreReady(15000))) throw new Error('EasyTier 内核 15 秒内没有就绪（详见 easytier-core.log）')
+    gatewayPhase = 'running'
+  }
+
+  async function stopCore() {
+    const pid = gatewayChild?.pid ?? gateway.pid
+    gatewayChild = undefined
+    if (pidAlive(pid)) {
+      try { process.kill(pid) } catch { /* 已退出 */ }
+      const deadline = Date.now() + 3000
+      while (Date.now() < deadline && pidAlive(pid)) await new Promise((resolve) => setTimeout(resolve, 200))
+    }
+    gateway.pid = 0
+    saveGateway()
+  }
+
+  async function restartCore() {
+    await stopCore()
+    await startCore()
+  }
+
+  /**
+   * 隧道刚建好的第一跳会空一次（转发口先接受连接、路由还没通，连接当场被关）。
+   * 这里先用一次 hello 把路径焐热，免得住户第一次点开节点就吃到一个假故障。
+   */
+  async function warmGatewayPeers(timeoutMs) {
+    const targets = peers.filter((item) => item.via === 'gateway')
+    if (targets.length === 0) return
+    const deadline = Date.now() + timeoutMs
+    for (const peerEntry of targets) {
+      while (Date.now() < deadline) {
+        try {
+          const response = await fetch(`http://127.0.0.1:${peerEntry.port}/remote-peers/hello`, {
+            headers: peerHeaders(peerEntry),
+            signal: AbortSignal.timeout(4000),
+          })
+          await response.text().catch(() => '')
+          if (response.ok) break
+        } catch {
+          // 路由还没通，等一拍再来。
+        }
+        await new Promise((resolve) => setTimeout(resolve, 500))
+      }
+    }
+  }
+
+  function parseCliTable(text) {
+    const lines = String(text).split('\n').map((line) => line.trim()).filter((line) => line.startsWith('|'))
+    if (lines.length < 3) return []
+    const header = lines[0].split('|').slice(1, -1).map((cell) => cell.trim())
+    return lines.slice(2).map((line) => {
+      const cells = line.split('|').slice(1, -1).map((cell) => cell.trim())
+      const row = {}
+      for (const [index, key] of header.entries()) row[key] = cells[index] ?? ''
+      return row
+    })
+  }
+
+  function buildCode() {
+    const address = server.address()
+    const payload = {
+      v: 1,
+      net: gateway.network.name,
+      secret: gateway.network.secret,
+      relay: gateway.relay,
+      me: {
+        id: state.instanceId,
+        name: hostname(),
+        vip: gateway.vip,
+        port: typeof address === 'object' && address !== null ? address.port : settings.listenPort,
+        token: currentToken,
+      },
+    }
+    return `DSHG1-${Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url')}`
+  }
+
+  function parseCode(text) {
+    const body = String(text ?? '').replace(/\s+/gu, '')
+    if (!body.startsWith('DSHG1-')) return undefined
+    let parsed
+    try { parsed = JSON.parse(Buffer.from(body.slice('DSHG1-'.length), 'base64url').toString('utf8')) } catch { return undefined }
+    if (parsed === null || typeof parsed !== 'object') return undefined
+    const net = typeof parsed.net === 'string' ? parsed.net : ''
+    const secret = typeof parsed.secret === 'string' ? parsed.secret : ''
+    const vip = typeof parsed.me?.vip === 'string' ? parsed.me.vip : ''
+    const port = Number(parsed.me?.port)
+    const token = typeof parsed.me?.token === 'string' ? parsed.me.token : ''
+    if (net === '' || secret === '' || vip === '' || token.length < 16) return undefined
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return undefined
+    return {
+      net,
+      secret,
+      vip,
+      port,
+      token,
+      relay: Array.isArray(parsed.relay) ? parsed.relay.map(String) : [],
+      me: { id: String(parsed.me?.id ?? ''), name: String(parsed.me?.name ?? '') },
+    }
+  }
+
+  async function gatewayStatusOf() {
+    const cli = cliPathOf()
+    const rows = cli === undefined || gatewayPhase !== 'running'
+      ? []
+      : parseCliTable((await runCommand(cli, ['--rpc-portal', `127.0.0.1:${gateway.rpcPort}`, 'peer'], 6000)).stdout)
+    const online = rows
+      .filter((row) => String(row.cost ?? '').toLowerCase() !== 'local')
+      .map((row) => ({ vip: String(row.ipv4 ?? ''), host: String(row.hostname ?? ''), latency: String(row['lat(ms)'] ?? ''), tunnel: String(row.tunnel ?? '') }))
+    return {
+      enabled: gateway.enabled,
+      phase: gatewayPhase,
+      error: gatewayError,
+      vip: gateway.vip,
+      networkName: gateway.network.name,
+      relay: gateway.relay,
+      coreReady: corePathOf() !== undefined,
+      coreVersion: GATEWAY.version,
+      online,
+      code: gateway.enabled ? buildCode() : '',
+      forwards: Object.entries(gateway.forwards).map(([id, forward]) => ({ id, local: forward.local, vip: forward.vip, remote: forward.remote })),
+    }
+  }
+
+  async function enableGateway() {
+    if (!gateway.enabled) {
+      gateway.enabled = true
+      if (gateway.vip === '') gateway.vip = gateway.role === 'joiner' ? pickVip() : `${GATEWAY.ipv4Prefix}1`
+      saveGateway()
+      await startCore()
+    } else if (gatewayPhase !== 'running') {
+      await startCore()
+    }
+    await warmGatewayPeers(6000)
+    return await gatewayStatusOf()
+  }
+
+  async function disableGateway() {
+    gateway.enabled = false
+    saveGateway()
+    await stopCore()
+    gatewayPhase = 'off'
+    return await gatewayStatusOf()
+  }
+
+  /** 把一条连接码接进来：同网络只补对端，换了网络就连内核一起换凭证重启。 */
+  async function joinGateway(text) {
+    const code = parseCode(text)
+    if (code === undefined) throw new Error('连接码无法识别，请整段复制对方「跨域网关」里的连接码')
+    const sameNetwork = code.net === gateway.network.name && code.secret === gateway.network.secret
+    gateway.enabled = true
+    if (!sameNetwork) {
+      await stopCore()
+      gateway.network = { name: code.net, secret: code.secret }
+      gateway.role = 'joiner'
+      if (gateway.relay.length === 0 && code.relay.length > 0) gateway.relay = code.relay
+      // 本机虚拟 IP 不能和对方撞：撞了就重新散列一个。
+      if (gateway.vip === '' || gateway.vip === code.vip) gateway.vip = pickVip()
+    }
+    const local = allocateForward(code.me.id)
+    gateway.forwards[code.me.id] = { local, vip: code.vip, remote: code.port }
+    peers = upsertGatewayPeer(code, local)
+    writePeers(peersFile, peers)
+    saveGateway()
+    await restartCore()
+    await warmGatewayPeers(8000)
+    logger.info('remote-peers: 跨域网关接入 %s（127.0.0.1:%d → %s:%d）', code.me.name === '' ? code.vip : code.me.name, local, code.vip, code.port)
+    return await gatewayStatusOf()
+  }
+
+  /** 网关节点就是一条普通对端记录：host 落在本机转发口，另带来源标记供列表展示。 */
+  function upsertGatewayPeer(code, local) {
+    const entry = {
+      id: code.me.id === '' ? randomUUID() : code.me.id,
+      name: code.me.name === '' ? `${code.vip}:${code.port}` : code.me.name,
+      host: '127.0.0.1',
+      port: local,
+      token: code.token,
+      via: 'gateway',
+      gateway: { vip: code.vip, port: code.port },
+    }
+    const existing = peers.find((item) => item.id === entry.id)
+    return existing === undefined ? [...peers, entry] : peers.map((item) => (item.id === entry.id ? entry : item))
+  }
+
+  if (gateway.enabled) {
+    void startCore().catch((error) => { gatewayPhase = 'error'; gatewayError = String(error?.message ?? error) })
+  }
+
+  try {
+    ctx.effect(() => () => {
+      // 热更新会重新 apply：只停本进程起的那一个，接管来的内核留给下一轮继续用。
+      if (gatewayChild === undefined) return
+      try { gatewayChild.kill() } catch { /* 已退出 */ }
+      gatewayChild = undefined
+    }, 'remote-peers: easytier core')
+  } catch (error) {
+    mark(`gateway effect throw ${error?.stack ?? error}`)
+  }
 
   function statusOf() {
     const address = server.address()
@@ -1692,5 +2137,17 @@ function normalizePeer(payload) {
   if (token.length < 16) return undefined
   const name = typeof payload.name === 'string' && payload.name.trim() !== '' ? payload.name.trim() : `${host}:${port}`
   const id = typeof payload.id === 'string' && payload.id !== '' ? payload.id : randomUUID()
-  return { id, name, host, port, token }
+  // 跨域网关接入的节点多带两个标记：来源（列表角标）与它在虚拟网里的真实地址（列表展示用）。
+  if (payload.via !== 'gateway') return { id, name, host, port, token }
+  const vip = typeof payload.gateway?.vip === 'string' ? payload.gateway.vip : ''
+  const remotePort = Number(payload.gateway?.port)
+  return {
+    id,
+    name,
+    host,
+    port,
+    token,
+    via: 'gateway',
+    gateway: { vip, port: Number.isInteger(remotePort) ? remotePort : 0 },
+  }
 }

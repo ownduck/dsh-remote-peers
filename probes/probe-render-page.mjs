@@ -170,6 +170,7 @@ if (capturedMain === null) throw new Error('没有捕获到 main 面板渲染函
 let tree = await settle(capturedMain)
 let texts = textOf(tree)
 console.log('管理页含「进入」:', texts.includes('进入'), '| 底部残留会话工具条:', texts.includes('分组：工作区') || texts.includes('关闭'))
+console.log('跨域网关块:', texts.includes('跨域网关'), '| 未启用态:', texts.includes('未启用'), '| 有加入入口:', texts.includes('加入'))
 
 const enterButton = findButton(tree, '进入')
 if (enterButton === undefined) throw new Error('管理页没有找到「进入」按钮')

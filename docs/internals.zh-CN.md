@@ -84,6 +84,21 @@ DeepSeek Harness 的远端互联插件：**只做插件，不改本体**。当�
 
 ## 端点
 
+跨域网关（本机 RPC 面新增，`gateway/*`）：
+
+- `gateway/status` → `{ enabled, phase, vip, networkName, relay, coreReady, online[], code, forwards[] }`
+- `gateway/enable` / `gateway/disable`：起停 `easytier-core`（`--no-tun`，无管理员）
+- `gateway/join { code }`：解析 `DSHG1-<base64url>`，同网只补对端，换网连内核一起换凭证重启
+
+连接码载荷 `{ v, net, secret, relay, me:{ id, name, vip, port, token } }`。接入的对端记录仍是
+`{ host:'127.0.0.1', port:<本地转发口>, token }`，另加 `via:'gateway'` 与 `gateway:{ vip, port }`
+供列表展示；隧道由内核的 `--port-forward tcp://127.0.0.1:<n>/<对端虚拟IP>:<端口>` 落地，
+因此既有 `forward()` / 流式 / 下载代码一行未改。
+
+已知的两处坑：隧道刚建好的**第一跳**会被空掉（转发口先接受连接、路由未就绪），所以接入后先
+用 `hello` 焐一次；同一台机器跑两个网关时 `-l` 与 `--rpc-portal` 会撞车，起进程前按真实
+绑定地址（`0.0.0.0` / 回环）各探一次空闲端口。
+
 对外（网关，需密钥）：
 
 - `GET /remote-peers/hello` → `{ type, instanceId, port, version }`

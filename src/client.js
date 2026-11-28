@@ -327,6 +327,12 @@ const markdownLabels = {
       const onPeersChanged = injected.onPeersChanged
       const [status, setStatus] = useState(null)
       const [peers, setPeers] = useState([])
+      /** 跨域网关状态（Host 才有）：null 表示还没读到。 */
+      const [gateway, setGateway] = useState(null)
+      const [gatewayInput, setGatewayInput] = useState('')
+      const [gatewayBusy, setGatewayBusy] = useState('')
+      const [gatewayError, setGatewayError] = useState('')
+      const [gatewayCopied, setGatewayCopied] = useState(false)
       const [error, setError] = useState('')
       const [busy, setBusy] = useState('')
       const [tokenVisible, setTokenVisible] = useState(false)
@@ -348,10 +354,12 @@ const markdownLabels = {
       const openNoticeTimer = useRef(0)
       const tokenCopiedTimer = useRef(0)
       const addressCopiedTimer = useRef(0)
+      const gatewayCopiedTimer = useRef(0)
       useEffect(() => () => {
         clearTimeout(tokenCopiedTimer.current)
         clearTimeout(addressCopiedTimer.current)
         clearTimeout(openNoticeTimer.current)
+        clearTimeout(gatewayCopiedTimer.current)
       }, [])
       /** 统一回执 toast：成功 2.4s；失败默认 8s（失败内容要看得清，不能一闪就没）。 */
       const notice = useCallback((text, ok, holdMs) => {
@@ -920,6 +928,8 @@ const markdownLabels = {
           const list = await call('peers/list')
           setPeers(list.peers ?? [])
           if (typeof onPeersChanged === 'function') onPeersChanged(list.peers ?? [])
+          // 网关状态只是附加信息：读不到不影响主清单（多半是 Host 那半还没重载到新版本）。
+          await call('gateway/status').then(setGateway).catch(() => setGateway({ unavailable: true }))
           setError('')
         } catch (failure) {
           setError(errorText(failure))
@@ -2135,6 +2145,44 @@ const markdownLabels = {
         }
       }, [call])
 
+      /** 跨域网关动作：启用 / 关闭 / 加入都走这里，成功后顺带刷新节点清单。 */
+      const gatewayAction = useCallback(async (endpoint, payload, busyText) => {
+        setGatewayBusy(busyText)
+        setGatewayError('')
+        try {
+          const next = await call(endpoint, payload ?? {})
+          setGateway(next)
+          const list = await call('peers/list')
+          setPeers(list.peers ?? [])
+          if (typeof onPeersChanged === 'function') onPeersChanged(list.peers ?? [])
+          return true
+        } catch (failure) {
+          setGatewayError(errorText(failure))
+          return false
+        } finally {
+          setGatewayBusy('')
+        }
+      }, [call, onPeersChanged])
+
+      /** 复制连接码：回执在按钮上，失败才弹一句话。 */
+      const copyGatewayCode = useCallback(async (code) => {
+        if (code === '') return
+        try {
+          await copyText(code)
+          setGatewayCopied(true)
+          clearTimeout(gatewayCopiedTimer.current)
+          gatewayCopiedTimer.current = setTimeout(() => setGatewayCopied(false), 1600)
+        } catch (failure) {
+          setGatewayError(`复制失败：${errorText(failure)}`)
+        }
+      }, [])
+
+      const joinByCode = useCallback(async () => {
+        const code = gatewayInput.trim()
+        if (code === '') return
+        if (await gatewayAction('gateway/join', { code }, '加入')) setGatewayInput('')
+      }, [gatewayInput, gatewayAction])
+
       const checkPeer = useCallback(async (id) => {
         setBusy(`ping:${id}`)
         try {
@@ -2405,6 +2453,7 @@ const markdownLabels = {
         error === '' ? null : h('div', { style: styles.error }, error),
 
         isFocused ? null : renderLocalGateway(),
+        isFocused ? null : renderCrossDomainGateway(),
 
         isFocused ? null : h('div', { style: styles.card },
           h('div', { style: styles.row },
@@ -2422,8 +2471,12 @@ const markdownLabels = {
                   h('th', { style: styles.th }, ''),
                 )),
                 h('tbody', null, peers.map((peer) => h('tr', { key: peer.id },
-                  h('td', { style: styles.td }, peer.name === undefined || peer.name === '' ? h('span', { style: styles.muted }, '（未命名）') : peer.name),
-                  h('td', { style: { ...styles.td, ...styles.mono } }, `${peer.host}:${peer.port}`),
+                  h('td', { style: styles.td },
+                    peer.name === undefined || peer.name === '' ? h('span', { style: styles.muted }, '（未命名）') : peer.name,
+                    peer.via === 'gateway' ? h('span', { style: styles.gatewayBadge, title: '经跨域网关接入' }, '网关') : null),
+                  h('td', { style: { ...styles.td, ...styles.mono } }, peer.via === 'gateway'
+                    ? `${peer.gateway?.vip ?? ''}:${peer.gateway?.port ?? ''}`
+                    : `${peer.host}:${peer.port}`),
                   h('td', { style: { ...styles.td, ...styles.statusCell }, title: ping[peer.id]?.ok === false ? `不可用：${ping[peer.id].reason}` : undefined },
                     ping[peer.id] === undefined
                       ? h('span', { style: styles.muted }, '未检测')
@@ -2674,6 +2727,101 @@ const markdownLabels = {
           h('span', { 'aria-hidden': 'true', style: styles.shimmerDecoration },
             h('span', { style: styles.shimmerSweep },
               h('span', { style: styles.shimmerContent }, h('span', { style: styles.thinkSummaryText }, value)))),
+        )
+      }
+
+      /**
+       * 跨域网关：一种新增的连接方式（EasyTier 虚拟网，免管理员）。
+       * 本机建网后把连接码给对方，对方粘贴即接入；对方给的连接码粘进来，则本机反向接入。
+       * 接入的节点仍是一条普通对端记录（地址是 127.0.0.1 上的转发口），后续行为与局域网一致。
+       */
+      function renderCrossDomainGateway() {
+        const enabled = gateway?.enabled === true
+        const unavailable = gateway?.unavailable === true
+        const phase = gateway?.phase ?? 'off'
+        const online = (gateway?.online ?? []).length
+        const code = gateway?.code ?? ''
+        const busyHere = gatewayBusy !== ''
+        const statusText = unavailable
+          ? '插件重载后可用'
+          : !enabled
+            ? '未启用'
+            : phase === 'running'
+              ? (online === 0 ? '已就绪，等待对方加入' : `已连接 ${online} 个节点`)
+              : phase === 'starting'
+                ? (gateway?.coreReady === false ? '正在准备内核（首次约 33MB）' : '正在连接虚拟网…')
+                : phase === 'error'
+                  ? '启动失败'
+                  : '未连接'
+        return h('div', { style: styles.card },
+          h('div', { style: styles.row },
+            h('h3', { style: styles.title }, '跨域网关'),
+            h('span', { style: styles.gatewayHint }, statusText),
+            h('div', { style: { flex: 1 } }),
+            enabled
+              ? h('button', {
+                  style: busyHere ? { ...styles.tableAction, width: 76, cursor: 'default', opacity: 0.7 } : { ...styles.tableAction, width: 76 },
+                  disabled: busyHere,
+                  onClick: () => void gatewayAction('gateway/disable', {}, '关闭'),
+                }, busyHere
+                  ? h('span', { style: styles.buttonBusy }, spinnerGlyph(12), '处理中')
+                  : '关闭')
+              : h('button', {
+                  style: busyHere || unavailable ? { ...styles.primary, cursor: 'default', opacity: 0.7 } : styles.primary,
+                  disabled: busyHere || unavailable,
+                  onClick: () => void gatewayAction('gateway/enable', {}, '启用'),
+                }, busyHere
+                  ? h('span', { style: styles.buttonBusy }, spinnerGlyph(12), '启用中')
+                  : '启用'),
+          ),
+          enabled
+            ? h('div', { style: styles.row },
+                h('span', { style: styles.muted }, '虚拟地址'),
+                h('span', { style: styles.mono }, gateway?.vip === '' ? '—' : gateway.vip),
+                h('span', { style: styles.muted }, '网络'),
+                h('span', { style: styles.mono }, gateway?.networkName === '' ? '—' : gateway.networkName),
+              )
+            : null,
+          gatewayError === '' ? null : h('div', { style: styles.error }, gatewayError),
+          enabled
+            ? h('div', { style: styles.row },
+                h('span', { style: styles.muted }, '连接码'),
+                h('span', { style: styles.gatewayCode, title: code }, code === '' ? '—' : code),
+                h('button', {
+                  style: gatewayCopied ? styles.buttonCopied : styles.button,
+                  disabled: code === '',
+                  onClick: () => void copyGatewayCode(code),
+                }, gatewayCopied
+                  ? h('span', { style: styles.buttonBusy }, checkGlyph(12), '已复制')
+                  : '复制'),
+              )
+            : null,
+          h('div', { style: styles.row },
+            h('span', { style: styles.muted }, '加入'),
+            h('input', {
+              style: { ...styles.input, flex: '1 1 260px' },
+              value: gatewayInput,
+              placeholder: '粘贴对方的连接码 DSHG1-…',
+              onChange: (event) => { setGatewayError(''); setGatewayInput(event.target.value) },
+              onKeyDown: (event) => {
+                if (event.key !== 'Enter' || gatewayBusy !== '') return
+                event.preventDefault()
+                void joinByCode()
+              },
+            }),
+            h('button', {
+              style: gatewayBusy === '加入' ? { ...styles.primary, cursor: 'default', opacity: 0.7 } : styles.primary,
+              disabled: gatewayBusy === '加入' || gatewayInput.trim() === '' || unavailable,
+              onClick: () => void joinByCode(),
+            }, gatewayBusy === '加入'
+              ? h('span', { style: styles.buttonBusy }, spinnerGlyph(12), '连接中')
+              : '加入'),
+          ),
+          h('div', { style: styles.gatewayHint }, unavailable
+            ? '这一版网关接口还没在宿主里生效：重载一次插件（不必重启客户端）后即可使用。'
+            : enabled
+              ? '把上面的连接码发给对方，对方粘贴后即接入本机（对方会出现在下面的节点列表里）；粘贴对方给出的连接码，则反过来由本机接入对方。'
+              : '启用后本机加入一张虚拟网（免管理员、不建虚拟网卡），两台不同网络里的机器凭连接码即可互连。'),
         )
       }
 

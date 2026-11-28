@@ -39,6 +39,7 @@ Both machines run this plugin. On the machine you want to reach, the panel shows
 - **Approvals and questions**: approve or answer here; the decision is relayed to the peer
 - **Files**: preview PDF / Word / Excel / PPT / images / text in the right pane; downloads land in one shared local copy, and *Open*, *Download* and *Show in folder* all reuse it
 - **Run state**: a remote session that is still working keeps showing its running state, including after you reopen the panel
+- **Cross-network link**: the *跨域网关* card at the top of the panel joins an EasyTier virtual network, so two machines on different networks can reach each other. Enable it on one machine and send its **connection code** to the other; pasting that code there brings it in, and pasting the other machine's code links back the other way. The core runs with `--no-tun` (no admin rights, no virtual adapter); the first enable downloads ~33 MB of kernel into `<stateDir>/easytier/`, after which each machine gets one forward port (`127.0.0.1:36001+`) straight to the peer's gateway. A peer joined this way is an ordinary peer record, so sessions, attachments, files and approvals behave exactly as on a LAN.
 
 ## Security
 
