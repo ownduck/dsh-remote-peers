@@ -63,7 +63,8 @@ Exposed through the gateway (token required):
 
 Local-only routes (the browser talks to its own Host; peer tokens stay there):
 
-- `/remote-peers` RPC: `status`, `token/reset`, `peers/list|upsert|remove|ping`, `proxy`, `upload`, `file/size(s)`, `open-local`, `local/copy`, `download/status|save|cancel`, `diag`
+- `/remote-peers` RPC: `status`, `token/reset`, `peers/list|upsert|remove|ping`, `proxy`, `file/size(s)`, `open-local`, `local/copy`, `download/status|save|cancel`, `diag`
+- `POST /api/remote-peers/upload?id=<peer>&sessionId=<id>[&name=<name>][&mediaType=<type>]` → the raw request body is streamed to the peer's own `/api/session/uploadFileBinary`; returns that route's `{ ok, value: { receiptId, image | file } }`
 - `GET|HEAD /api/remote-peers/file?id=<peer>&path=<absolute path>[&v=<version>][&download=1]`
 - `GET /api/remote-peers/export|markdown|stream|call|diag|vendor|office|present-open|changes`
 
@@ -71,7 +72,7 @@ Local-only routes (the browser talks to its own Host; peer tokens stay there):
 
 - **LAN only.** No NAT traversal or relay yet; both machines must reach each other directly (same subnet, or a VPN that keeps layer-3 reachability).
 - **The sidebar cannot nest.** DSH's `sidebar.panellist` is a flat list, and `sidebar.workspaces` is a single slot already owned by the host. So the plugin registers one entry per peer and renders the workspace tree inside the session list page.
-- **Attachments are base64 on the wire.** Picked files travel through the LAN RPC as base64 and are held in memory on the way, so they suit screenshots, documents and photos — hand a multi-hundred-megabyte archive to the file *download* path instead.
+- **Attachments stream as bytes.** A picked file leaves the browser as the request body of the local `/api/remote-peers/upload` route and is piped to the peer without base64 expansion, the same path the desktop app takes. Footprint is one in-flight request per file; very large archives still belong to the file *download* path.
 - **Preview only, no editing.** Formats mirror the host's renderers (PDF via pdf.js, Office via the peer's `officeKit`).
 - **No `Trajectory` tab.** It needs event-level call trees, which this plugin does not reconstruct.
 - **`Show in folder` takes about 2 seconds.** Explorer itself takes that long to raise a window, so the button shows a fixed 2-second "Opening…" state instead of polling for the window.

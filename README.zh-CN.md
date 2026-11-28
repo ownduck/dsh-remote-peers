@@ -71,8 +71,10 @@ dsh plugin --profile desktop remove dsh-remote-peers
 
 只在本机可达（浏览器与本机 Host 通信，对端密钥不出 Host）：
 
-- `/remote-peers` RPC：`status`、`token/reset`、`peers/list|upsert|remove|ping`、`proxy`、`upload`、`file/size(s)`、
+- `/remote-peers` RPC：`status`、`token/reset`、`peers/list|upsert|remove|ping`、`proxy`、`file/size(s)`、
   `open-local`、`local/copy`、`download/status|save|cancel`、`diag`
+- `POST /api/remote-peers/upload?id=<peer>&sessionId=<id>[&name=<名字>][&mediaType=<类型>]` →
+  请求体原样流给节点自己的 `/api/session/uploadFileBinary`，回那条路由的 `{ ok, value: { receiptId, image | file } }`
 - `GET|HEAD /api/remote-peers/file?id=<peer>&path=<绝对路径>[&v=<版本>][&download=1]`
 - `GET /api/remote-peers/export|markdown|stream|call|diag|vendor|office|present-open|changes`
 
@@ -82,8 +84,8 @@ dsh plugin --profile desktop remove dsh-remote-peers
 - **侧栏做不成文件夹。** 宿主的 `sidebar.panellist` 是平铺列表，`sidebar.workspaces` 是单槽且已被宿主占用，
   所以本插件给每个他端注册一条入口，把工作区树放在会话列表页里。
 - **只做预览，不做编辑。** 各格式对齐宿主渲染链（PDF 走 pdf.js，Office 走对端 `officeKit`）。
-- **附件以 base64 过链路。** 选中的文件走局域网 RPC 传 base64，途中要在内存里放一份，
-  适合截图、文档、照片；几百 MB 的大包请走文件**下载**那条路。
+- **附件按字节流过去。** 选中的文件直接作为本机 `/api/remote-peers/upload` 的请求体发出，网关原样转给节点，
+  不再做 base64 展开，与桌面端同一条路径；占用是每份文件一条在途请求，几百 MB 的大包仍建议走文件**下载**那条路。
 - **没有「轨迹」tab。** 它需要事件级调用树，本插件不重建。
 - **「显示文件位置」固定约 2 秒。** 资源管理器起窗本身就要这么久，按钮固定显示 2 秒「正在打开…」，不再轮询窗口。
 

@@ -190,6 +190,9 @@ DeepSeek Harness 的远端互联插件：**只做插件，不改本体**。当�
   本插件不重画；
 - 文件/图片卡片：**只渲染卡片，不跨端传字节**；点击卡片（含消息里的附件卡）都走右侧预览面板，
   数据由 `openFilePreview()` 按该会话 `cwd` 解析后的路径经 `/api/remote-peers/file` 转发；
+- 待发附件上行：`File` 自己作为请求体直接 `POST /api/remote-peers/upload`（网关流式转发到节点的
+  `/api/session/uploadFileBinary`），不经 JSON-RPC、不做 base64；节点回 `{ ok, value: { receiptId } }`，
+  发送时正文里只带收据。失败态（含节点自己的 `error.message`）留在卡片上，点击重传；
 - 底部状态行：`N 轮 M 步 · tok/s · 累计 token · 缓存命中 · 上下文占用`，取自会话事件里的
   `turn/start`、`step/start|end`、`assistant/message.data.usage`、`request/context.data.contextWindow`。
 

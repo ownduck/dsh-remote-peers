@@ -2351,10 +2351,55 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       }, [call, runCommand])
 
       /**
-       * 传一份待发附件：字节交给本机 Host（`/remote-peers` 的 `upload`），由它投进对端附件暂存区。
-       * 成功后拿到 receiptId，发送时只带这张收据；失败把失败态留在卡片上，点一下重试。
-       * @param peerId - 目标他端
-       * @param sessionId - 对端会话
+       * 附件上行走本机网关的二进制作业：`File` 自己就是请求体，网关原样流给节点的
+       * `/api/session/uploadFileBinary`（原生 Client 的同一条路由），不经过 JSON-RPC 的 base64 展开。
+       * @param peerId - 目标节点
+       * @param sessionId - 节点上的会话
+       * @param attachment - 待发附件（含 `file`）
+       * @returns 节点给出的收据号
+       */
+      async function postAttachment(peerId, sessionId, attachment) {
+        // 面板刚挂载时 `refresh` 可能还没回来；缺密钥先补一次，否则网关会 401。
+        if (tokenRef.current === '') {
+          try {
+            const next = await call('status')
+            tokenRef.current = typeof next?.token === 'string' ? next.token : ''
+          } catch {
+            /* 取不到就按无密钥发，401 由下面的提示呈现 */
+          }
+        }
+        const query = new URLSearchParams({ id: peerId, sessionId, name: attachment.name })
+        // 带 `mediaType` 的那条按提示词图片存放，其余按普通文件；与原生 `uploadImage` 同口径。
+        if (attachment.kind === 'image') query.set('mediaType', attachment.mediaType)
+        const response = await fetch(`/api/remote-peers/upload?${query.toString()}`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/octet-stream',
+            ...(tokenRef.current === '' ? {} : { authorization: `Bearer ${tokenRef.current}` }),
+          },
+          body: attachment.file,
+        })
+        const text = await response.text()
+        let parsed
+        try {
+          parsed = JSON.parse(text)
+        } catch {
+          parsed = undefined
+        }
+        const receiptId = typeof parsed?.value?.receiptId === 'string' ? parsed.value.receiptId : ''
+        if (parsed?.ok === true && receiptId !== '') return receiptId
+        throw new Error(parsed?.error?.message !== undefined
+          ? String(parsed.error.message)
+          : response.status === 401
+            ? '节点拒绝了共享密钥'
+            : `节点拒绝了这份附件（HTTP ${response.status}）`)
+      }
+
+      /**
+       * 传一份待发附件：选中即上传（与原生一样不等发送），成功后只留收据号；
+       * 失败把原因留在卡片上，点一下重试。
+       * @param peerId - 目标节点
+       * @param sessionId - 节点上的会话
        * @param attachment - 待发附件（含 `file`）
        */
       const uploadAttachment = useCallback(async (peerId, sessionId, attachment) => {
@@ -2362,18 +2407,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
           setPendingFiles((previous) => previous.map((item) => (item.id === attachment.id ? { ...item, ...next } : item)))
         }
         try {
-          const data = await readFileBase64(attachment.file)
-          const result = await call('upload', {
-            id: peerId,
-            sessionId,
-            name: attachment.name,
-            // 图片走 `uploadImage` 那条（带 mediaType），其余按普通文件收据上传。
-            mediaType: attachment.kind === 'image' ? attachment.mediaType : '',
-            data,
-          })
-          const envelope = envelopeOf(result, '对端拒绝了这份附件')
-          const receiptId = typeof envelope.value?.receiptId === 'string' ? envelope.value.receiptId : ''
-          if (receiptId === '') throw new Error('对端没有返回附件收据')
+          const receiptId = await postAttachment(peerId, sessionId, attachment)
           patch({ status: 'ready', receiptId, error: '' })
         } catch (failure) {
           patch({ status: 'error', error: errorText(failure) })
@@ -7630,25 +7664,6 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
 
     /** 原生 `isImageMediaType` 认的四种图片类型：只有它们才走缩略图草稿。 */
     const IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
-
-    /**
-     * 读一份本地文件为 base64（不含 `data:` 前缀）：走 FileReader 的 dataURL，
-     * 大图大文件也不用自己切块拼字符串。
-     * @param file - 浏览器 File
-     * @returns base64 正文
-     */
-    function readFileBase64(file) {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = () => {
-          const result = typeof reader.result === 'string' ? reader.result : ''
-          const comma = result.indexOf(',')
-          resolve(comma === -1 ? '' : result.slice(comma + 1))
-        }
-        reader.onerror = () => { reject(reader.error ?? new Error('读取本地文件失败')) }
-        reader.readAsDataURL(file)
-      })
-    }
 
     /**
      * 剪贴板里的文件，按剪贴板顺序（原生 `clipboardFiles` 的同一取法）。
