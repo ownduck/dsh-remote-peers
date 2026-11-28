@@ -851,21 +851,18 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       attachRemove: { position: 'absolute', top: 4, right: 4, zIndex: 1, display: 'grid', placeItems: 'center', width: 18, height: 18, padding: 0, border: 'none', borderRadius: '50%', cornerShape: 'round', background: 'var(--dsw-alias-button-contrast-fill, rgba(0,0,0,0.55))', color: 'var(--dsw-alias-label-primary-inverted, #fff)', opacity: 0, cursor: 'pointer', transition: 'opacity 0.2s ease-in-out' },
       attachRemoveShown: { opacity: 1 },
       attachRemoveFailed: { opacity: 1, background: 'var(--dsw-alias-state-error-primary, #e5484d)', color: 'var(--dsw-alias-label-on-color, #fff)' },
-      /* 文件草稿：原生 `FileCard` 240×64、0.5px l2 描边、lg 圆角、28px 图标位 */
-      attachFileCard: { position: 'relative', boxSizing: 'border-box', flex: 'none', display: 'inline-flex', alignItems: 'center', gap: 10, width: 240, height: 64, padding: '0 12px', border: '0.5px solid var(--dsw-alias-border-l2, #e3e4e6)', borderRadius: 'var(--dsw-radius-lg, 10px)', background: 'var(--dsw-specific-input-major, #fff)', textAlign: 'left' },
-      attachFileCardFailed: { borderColor: 'var(--dsw-alias-state-error-primary, #e5484d)' },
-      attachFileIcon: { display: 'inline-flex', flex: 'none', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, color: 'var(--dsw-alias-label-secondary, #55585f)' },
-      attachFileSpinner: { width: 20, height: 20, boxSizing: 'border-box', border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%', cornerShape: 'round', animation: 'dsh-rp-spin 0.8s linear infinite' },
-      attachFileBody: { display: 'flex', flex: 1, flexDirection: 'column', minWidth: 0, padding: '8px 0' },
-      attachFileRetry: { padding: 0, border: 0, background: 'transparent', color: 'inherit', font: 'inherit', textAlign: 'left', cursor: 'pointer' },
-      attachFileName: { overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', color: 'var(--dsw-alias-label-primary, #1f2328)', fontSize: 14, fontWeight: 500, lineHeight: '22px' },
-      attachFileMeta: { overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', color: 'var(--dsw-alias-label-tertiary, #8f9399)', fontSize: 12, lineHeight: '15px' },
-      attachFileMetaFailed: { color: 'var(--dsw-alias-state-error-primary, #e5484d)' },
-      /* 文件卡的 ✕：内缩 6px（原生 `FileCard .remove`），失败时整颗变红且常显 */
-      attachFileRemove: { position: 'absolute', top: 6, right: 6, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 18, height: 18, padding: 0, border: 'none', borderRadius: '50%', cornerShape: 'round', background: 'var(--dsw-alias-button-contrast-fill, rgba(0,0,0,0.55))', color: 'var(--dsw-alias-label-primary-inverted, #fff)', opacity: 0, cursor: 'pointer', transition: 'opacity 0.2s ease-in-out' },
-      /* 进度条：缩略图内距 8/6，文件卡内距 12/5（原生两处各自的值） */
+      /* 非图片草稿：原生 `ReferenceChip` 的蓝字 chip —— 14px 文件图标 + ≤240px 省略号名字、
+         4px 圆角、透明底，悬停才铺一层浅蓝；失败态转红加删除线，点一下重传。 */
+      attachChipRow: { display: 'flex', flexWrap: 'wrap', gap: 6, padding: '2px 14px 0', marginBottom: -6 },
+      attachChip: { display: 'inline-flex', alignItems: 'center', gap: 3, maxWidth: 240, minHeight: 24, padding: '0 4px', border: 'none', borderRadius: 'var(--dsw-radius-sm, 4px)', background: 'transparent', color: 'var(--dsw-alias-state-business-primary, #3964FE)', fontSize: 14, lineHeight: '22px', userSelect: 'none', transition: 'background 0.15s ease-in-out' },
+      attachChipHover: { background: 'var(--dsw-alias-state-business-tertiary, rgba(57,100,254,0.08))' },
+      attachChipInvalid: { color: 'var(--dsw-alias-state-error-primary, #e5484d)', textDecoration: 'line-through', opacity: 0.7, cursor: 'pointer' },
+      attachChipIcon: { display: 'inline-flex', flex: 'none', alignItems: 'center' },
+      attachChipLabel: { overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' },
+      attachChipSpinner: { display: 'inline-flex', flex: 'none', alignItems: 'center', marginLeft: 2, opacity: 0.6 },
+      attachChipRemove: { flex: 'none', display: 'inline-grid', placeItems: 'center', width: 14, height: 14, marginLeft: 2, padding: 0, border: 'none', borderRadius: '50%', cornerShape: 'round', background: 'transparent', color: 'inherit', cursor: 'pointer' },
+      /* 进度条：缩略图内距 8/6（原生 `ComposerAttachments .progressTrack`） */
       attachThumbProgress: { position: 'absolute', left: 8, right: 8, bottom: 6, height: 2, overflow: 'hidden', borderRadius: 1, background: 'var(--dsw-specific-file-upload-track, #ececec)', pointerEvents: 'none' },
-      attachFileProgress: { position: 'absolute', left: 12, right: 12, bottom: 5, height: 2, overflow: 'hidden', borderRadius: 1, background: 'var(--dsw-specific-file-upload-track, #ececec)' },
       attachProgressBar: { display: 'block', width: '35%', height: '100%', borderRadius: 'inherit', background: 'var(--dsw-alias-brand-primary, #3964FE)', animation: 'dsh-rp-upload 1.2s ease-in-out infinite alternate' },
       commandToken: { position: 'absolute', left: 0, top: 0, fontSize: 14, fontWeight: 500, color: 'var(--dsw-alias-state-business-primary, #3964FE)', pointerEvents: 'none', lineHeight: '24px', paddingTop: 4, paddingLeft: 14 },
       commandRow: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, opacity: 0.8 },
@@ -6600,15 +6597,22 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       }
 
       /**
-       * 待发附件行 —— 原生 `ComposerAttachments.rail`：图片是 64×64 缩略图（悬停出 ✕、底部进度），
-       * 其余是 240×64 的文件卡（图标 / 名字 / 大小，上传中换成转圈 + 进度）。
+       * 待发附件 —— 图片在原生 `ComposerAttachments.rail` 里是 64×64 缩略图；
+       * 其余文件按原生 `ReferenceChip` 的口径排在下面一行蓝字 chip 里（不是文件卡）。
        */
       function renderStagedAttachments() {
         if (pendingFiles.length === 0) return null
-        return h('div', { style: styles.attachRail },
-          pendingFiles.map((file) => (file.kind === 'image'
-            ? h(StagedImage, { key: file.id, file, onRemove: dropStaged, onRetry: retryStaged })
-            : h(StagedFile, { key: file.id, file, onRemove: dropStaged, onRetry: retryStaged }))))
+        const images = pendingFiles.filter((file) => file.kind === 'image')
+        const others = pendingFiles.filter((file) => file.kind !== 'image')
+        return h(react.Fragment, null,
+          images.length === 0
+            ? null
+            : h('div', { style: styles.attachRail },
+                images.map((file) => h(StagedImage, { key: file.id, file, onRemove: dropStaged, onRetry: retryStaged }))),
+          others.length === 0
+            ? null
+            : h('div', { style: styles.attachChipRow },
+                others.map((file) => h(StagedChip, { key: file.id, file, onRemove: dropStaged, onRetry: retryStaged }))))
       }
 
       /** 12px 细叉：原生 `IconCloseFillRegular` 的尺寸与观感（静止时透明、悬停才露出来）。 */
@@ -6636,17 +6640,16 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       }
 
       /**
-       * 移除钮：静止透明，缩略图/文件卡悬停或按钮自身聚焦才出现（原生 `AttachmentRail .remove`），
-       * 失败态整颗转红并常显（原生 `FileCard .removeFailed`）。
+       * 缩略图的移除钮：静止透明，悬停整块或自身聚焦才出现（原生 `AttachmentRail .remove`），
+       * 失败态整颗转红并常显（原生 `.removeFailed`）。
        * @param file - 待发附件
        * @param onRemove - 移除回调
-       * @param options - `{ shown, failed, fileCard, onReveal }`
+       * @param options - `{ shown, failed, onReveal }`
        */
       function stagedRemoveButton(file, onRemove, options) {
-        const base = options.fileCard === true ? styles.attachFileRemove : styles.attachRemove
         const style = options.failed === true
-          ? { ...base, ...styles.attachRemoveFailed }
-          : (options.shown === true ? { ...base, ...styles.attachRemoveShown } : base)
+          ? { ...styles.attachRemove, ...styles.attachRemoveFailed }
+          : (options.shown === true ? { ...styles.attachRemove, ...styles.attachRemoveShown } : styles.attachRemove)
         return h('button', {
           type: 'button',
           style,
@@ -6698,34 +6701,36 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         )
       }
 
-      /** 一份文件草稿：原生 `FileCard`（图标位 28、14/22 名字、12/15 大小；失败描边转红并可点重试）。 */
-      function StagedFile({ file, onRemove, onRetry }) {
+      /**
+       * 一份非图片草稿：原生 `ReferenceChip` 的蓝字 chip —— 14px 文件图标 + 省略号名字，
+       * 上传中转圈、失败转红加删除线（点一下重传），悬停才露出移除。
+       */
+      function StagedChip({ file, onRemove, onRetry }) {
         const [revealed, setRevealed] = useState(false)
         const failed = file.status === 'error'
         const uploading = file.status === 'uploading'
-        const extension = String(file.name).split('.').pop() ?? ''
-        const meta = uploading
-          ? '上传中…'
-          : failed
-            ? (file.error || '上传失败（点击重试）')
-            : [extension.toUpperCase().slice(0, 8), formatBytes(file.size)].filter((part) => part !== '').join(' ')
+        const title = uploading ? '上传中…' : failed ? (file.error || '上传失败（点击重试）') : file.name
+        const style = failed
+          ? { ...styles.attachChip, ...styles.attachChipInvalid }
+          : revealed ? { ...styles.attachChip, ...styles.attachChipHover } : styles.attachChip
         return h('div', {
-          style: failed ? { ...styles.attachFileCard, ...styles.attachFileCardFailed } : styles.attachFileCard,
-          title: file.name,
+          style,
+          title,
           onMouseEnter: () => setRevealed(true),
           onMouseLeave: () => setRevealed(false),
+          onClick: failed ? () => onRetry(file) : undefined,
         },
-          h('span', { style: styles.attachFileIcon }, uploading ? h('span', { style: styles.attachFileSpinner }) : fileGlyph(18)),
-          failed
-            ? h('button', { type: 'button', style: { ...styles.attachFileBody, ...styles.attachFileRetry }, onClick: () => onRetry(file) },
-                h('span', { style: styles.attachFileName }, file.name),
-                h('span', { style: { ...styles.attachFileMeta, ...styles.attachFileMetaFailed } }, meta))
-            : h('span', { style: styles.attachFileBody },
-                h('span', { style: styles.attachFileName }, file.name),
-                h('span', { style: styles.attachFileMeta }, meta)),
-          stagedRemoveButton(file, onRemove, { shown: revealed, failed, fileCard: true, onReveal: setRevealed }),
-          uploading
-            ? h('span', { style: styles.attachFileProgress, 'aria-hidden': 'true' }, h('span', { style: styles.attachProgressBar }))
+          h('span', { style: styles.attachChipIcon }, fileGlyph(14)),
+          h('span', { style: styles.attachChipLabel }, file.name),
+          uploading ? h('span', { style: styles.attachChipSpinner, 'aria-hidden': 'true' }, spinnerGlyph(12)) : null,
+          revealed
+            ? h('button', {
+                type: 'button',
+                style: styles.attachChipRemove,
+                title: '移除',
+                'aria-label': `移除 ${file.name}`,
+                onClick: (event) => { event.stopPropagation(); onRemove(file.id) },
+              }, closeGlyph(12))
             : null,
         )
       }
