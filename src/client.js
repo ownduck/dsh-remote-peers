@@ -7396,6 +7396,8 @@ const markdownLabels = {
     /** Client 插件入口：管理面板 + 每个他端一条左栏入口。 */
     function apply(ctx) {
       ensureScrollSkin()
+      /* 客户端 bundle 版本标记：diag.log 里能看出浏览器实际加载的是哪一版。 */
+      diagNote('client bundle r134')
       const api = {
         async call(endpoint, payload) {
           const connection = ctx.get('connection')
