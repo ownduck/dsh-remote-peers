@@ -442,6 +442,10 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       /* 前导槽：原生 `.slot` —— 16×20 居中，常态放文件夹图标，hover 换成实心三角（`.projectRow:hover` 的 folder/chevron 互换） */
       treeLeadSlot: { flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 16, height: 20, color: 'var(--dsw-alias-label-tertiary, #a6a9ae)' },
       sessionTreeLabel: { flex: '1 1 auto', minWidth: 0, overflow: 'hidden', fontSize: 14, lineHeight: '20px', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+      /* 已归档行留在原位、只降一档灰（原生 `.sessionRow.archived .title { color: label-caption }`） */
+      sessionTreeLabelArchived: { color: 'var(--dsw-alias-label-caption, #ADB2B8)' },
+      /* 置顶行的常驻标记：原生 `.pinIndicator` —— 16×20 居中、左 6、label-caption，不可点 */
+      sessionTreePin: { flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 16, height: 20, marginLeft: 6, color: 'var(--dsw-alias-label-caption, #ADB2B8)' },
       sessionTreeMeta: { flex: 'none', fontSize: 11, lineHeight: '16px', color: 'var(--dsw-alias-label-tertiary, #a6a9ae)' },
       sessionTreeTime: { flex: 'none', fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-label-tertiary, #a6a9ae)' },
       /* 文件夹行右侧的新会话钮：原生 `.iconButton` —— 24×24 命中区（margin -4 压回 16）、14 图标、`label-tertiary`，hover 转 `label-primary` */
@@ -3326,8 +3330,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
 
       /** 文件夹行：chevron + 文件夹图标 + 名字，点击折叠/展开。目录节点（无工作区身份）右侧留数量与相对时间；
           工作区行右侧不再显示数量/时间，hover 时换成「⋯ + 新会话」两枚图标钮 —— 原生 `.rowResting`/`.rowActions` 的互换。 */
-      function renderTreeFolder(key, depth, label, count, latest, workspaceId) {
-        const open = sessionTreeOpen[key] !== false
+      function renderTreeFolder(key, depth, label, count, latest, workspaceId) {        const open = sessionTreeOpen[key] !== false
         // 菜单开着的那一行保持展开态外观（原生 `.projectRow.menuOpen` 让 `.rowActions` 一直显示）
         const menuOpen = wsMenu !== null && wsMenu.workspaceId === workspaceId
         const hovered = sessionTreeHover === key || menuOpen
@@ -3384,10 +3387,12 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
                   }, busy ? spinnerGlyph(12) : newChatGlyph(14)),
                 )]
               : [])
-          : [
-              h('span', { key: 'count', style: styles.sessionTreeMeta }, String(count)),
-              h('span', { key: 'time', style: styles.sessionTreeTime }, relativeTimeText(latest)),
-            ]
+          : (count === undefined
+              ? []
+              : [
+                  h('span', { key: 'count', style: styles.sessionTreeMeta }, String(count)),
+                  h('span', { key: 'time', style: styles.sessionTreeTime }, relativeTimeText(latest)),
+                ])
         return treeRowShell(key, depth,
           [
             // 原生 `.slot`：常态是文件夹，hover 换成实心三角（`.folder`/`.chevron` 互换），没有单独的常驻 caret
@@ -3402,11 +3407,11 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       }
 
       /**
-       * 会话行：缩进到文件层级；常态右侧相对时间，hover 换成「归档 + 置顶」两枚图标钮
-       * （原生 `ArchiveSessionRowButton` order 100 在前、`PinSessionRowButton` order 200 在后；
-       * 置顶过的行即使不 hover 也保留置顶钮，图标转实心）。
+       * 会话行：常态右侧是「相对时间 +（置顶时的）静态图钉」，hover 换成「归档 + 置顶」两枚图标钮
+       * —— 原生 `.rowResting`/`.rowActions` 的互换（`PinnedIndicator` 不可点，`pinIndicator` 16×20 17）。
+       * 已归档行留在原位、不带前导标记、只把标题降一档灰；置顶钮在归档行不渲染（`PinSession` 的 `if (archived) return null`）。
        */
-      function renderTreeSession(session, depth, note) {
+      function renderTreeSession(session, depth) {
         const key = `s:${session.sessionId}`
         const hovered = sessionTreeHover === key
         const pinned = pinnedIds.map(String).includes(String(session.sessionId))
@@ -3430,18 +3435,21 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
             onClick()
           },
         }, glyph)
-        const actions = hovered || pinned
-          ? h('div', { key: 'actions', style: styles.sessionTreeActions },
-              iconButton('archive', archived ? '取消归档' : '归档会话', archiveGlyph(14),
-                () => void toggleSessionFlag(archived ? 'workspace/unarchiveSession' : 'workspace/archiveSession', 'archivedSessionIds', session.sessionId)),
-              archived ? null : iconButton('pin', pinned ? '取消置顶' : '置顶会话', pinGlyph(14, pinned),
-                () => void toggleSessionFlag(pinned ? 'workspace/unpinSession' : 'workspace/pinSession', 'pinnedSessionIds', session.sessionId)))
-          : null
+        const actions = h('div', { key: 'actions', style: styles.sessionTreeActions },
+          iconButton('archive', archived ? '取消归档' : '归档会话', archiveGlyph(14),
+            () => void toggleSessionFlag(archived ? 'workspace/unarchiveSession' : 'workspace/archiveSession', 'archivedSessionIds', session.sessionId)),
+          archived ? null : iconButton('pin', pinned ? '取消置顶' : '置顶会话', pinGlyph(14, pinned),
+            () => void toggleSessionFlag(pinned ? 'workspace/unpinSession' : 'workspace/pinSession', 'pinnedSessionIds', session.sessionId)))
         return treeRowShell(key, depth,
           [
-            h('span', { key: 'label', style: styles.sessionTreeLabel }, sessionTitle(session)),
-            note === '' ? null : h('span', { key: 'note', style: styles.sessionTreeMeta }, note),
-            actions ?? h('span', { key: 'time', style: styles.sessionTreeTime }, relativeTimeText(session.updatedAt)),
+            h('span', { key: 'label', style: archived ? { ...styles.sessionTreeLabel, ...styles.sessionTreeLabelArchived } : styles.sessionTreeLabel }, sessionTitle(session)),
+            hovered
+              ? actions
+              : h('span', { key: 'resting', style: styles.sessionTreeActions },
+                  h('span', { key: 'time', style: styles.sessionTreeTime }, relativeTimeText(session.updatedAt)),
+                  pinned && !archived
+                    ? h('span', { key: 'pin', style: styles.sessionTreePin, 'aria-label': '已置顶', role: 'img' }, pinGlyph(14, true))
+                    : null),
           ],
           () => void openRemoteSession(activePeer, session.sessionId),
           `${sessionTitle(session)} · ${session.sessionId} · ${session.cwd ?? ''}`,
@@ -3489,8 +3497,8 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       }
 
       /** 一组会话行（按当前排序）。 */
-      function sessionRows(rows, depth, note) {
-        return rows.map((session) => renderTreeSession(session, depth, typeof note === 'function' ? note(session) : (note ?? '')))
+      function sessionRows(rows, depth) {
+        return rows.map((session) => renderTreeSession(session, depth))
       }
 
       /** 工作区树：按 cwd 逐级拆目录，叶子下挂会话（原生「按工作区树」）。 */
@@ -3514,7 +3522,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       }
 
       /** 递归渲染工作区树节点：文件夹行 + 子目录 + 直挂会话。 */
-      function renderWorkspaceTree(node, depth, archivedSet) {
+      function renderWorkspaceTree(node, depth) {
         const rows = []
         const countOf = (item) => item.rows.length + [...item.children.values()].reduce((sum, child) => sum + countOf(child), 0)
         const latestOfNode = (item) => latestOf([...item.rows, ...[...item.children.values()].map((child) => ({ updatedAt: latestOfNode(child) }))])
@@ -3522,7 +3530,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
           const open = sessionTreeOpen[item.key] !== false
           rows.push(renderTreeFolder(item.key, depth, item.label, countOf(item), latestOfNode(item)))
           if (!open) return
-          for (const session of sessionRows(item.rows, depth + 1, (row) => (archivedSet.has(String(row.sessionId)) ? '已归档' : ''))) rows.push(session)
+          for (const session of sessionRows(item.rows, depth + 1)) rows.push(session)
           for (const child of item.children.values()) emit(child)
         }
         for (const child of node.children.values()) emit(child)
@@ -3531,7 +3539,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
 
       /** 会话树：`workspace` 按工作区分组、`tree` 按工作区目录树、`list` 单列表。 */
       function renderSessionList() {
-        const { list, archivedSet } = visibleSessions()
+        const { list } = visibleSessions()
 
         if (list.length === 0) {
           return h('div', { style: styles.muted },
@@ -3539,13 +3547,11 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         }
 
         if (groupMode === 'list') {
-          return h('div', { style: styles.sessionTree },
-            sessionRows(list, 0, (row) => (archivedSet.has(String(row.sessionId)) ? '已归档' : '')),
-          )
+          return h('div', { style: styles.sessionTree }, sessionRows(list, 0))
         }
 
         if (groupMode === 'tree') {
-          return h('div', { style: styles.sessionTree }, renderWorkspaceTree(workspaceTreeOf(list), 0, archivedSet))
+          return h('div', { style: styles.sessionTree }, renderWorkspaceTree(workspaceTreeOf(list), 0))
         }
 
         const byId = new Map(list.map((session) => [session.sessionId, session]))
@@ -3563,20 +3569,19 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
           // 原生 groupByWorkspace：除「仅看已归档」时无成员跳过外，每个工作区都出一行（空工作区照样显示）
           .filter((group) => archiveFilter !== 'only' || group.rows.length > 0)
         const orphans = list.filter((session) => !claimed.has(session.sessionId))
-        const archived = list.filter((session) => archivedSet.has(String(session.sessionId)))
 
-        /** 一层文件夹 + 其下会话行（展开时）。 */
-        const folder = (group, depth, note) => {
+        /** 一层文件夹 + 其下会话行（展开时）。工作区行右侧不显示数量/时间（原生 `.projectRow` 只有文件夹、名字和动作） */
+        const folder = (group, depth) => {
           const open = sessionTreeOpen[group.key] !== false
-          const rows = [renderTreeFolder(group.key, depth, group.title, group.rows.length, latestOf(group.rows), group.workspaceId)]
-          if (open) for (const session of group.rows) rows.push(renderTreeSession(session, depth + 1, typeof note === 'function' ? note(session) : (note ?? '')))
+          const rows = [renderTreeFolder(group.key, depth, group.title, undefined, undefined, group.workspaceId)]
+          if (open) for (const session of group.rows) rows.push(renderTreeSession(session, depth + 1))
           return rows
         }
 
+        // 原生 no「已归档」分组：归档会话留在所属工作区内（按筛选显隐）、只在标题降一档灰
         const children = []
         for (const group of groups) children.push(...folder(group, 0))
         if (orphans.length > 0) children.push(...folder({ key: 'orphans', title: '未归入工作区', rows: orphans }, 0))
-        if (archived.length > 0) children.push(...folder({ key: 'archived', title: '已归档', rows: archived }, 0, '已归档'))
         return h('div', { style: styles.sessionTree }, children)
       }
 
