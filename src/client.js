@@ -387,7 +387,24 @@ const markdownLabels = {
       /** 正在流的思考原文：原生渲染成 24px 的「思考」折叠行，正文区不出现。 */
       const [liveReasoning, setLiveReasoning] = useState('')
       const [liveReasoningOpen, setLiveReasoningOpen] = useState(false)
-      const [promptText, setPromptText] = useState('')
+      /** 草稿按会话分开存（原生 draft 属于该会话）：切走再切回来还在框里。 */
+      const [draftBySession, setDraftBySession] = useState({})
+      const draftKey = `${activePeer}:${openSession}`
+      const promptText = draftBySession[draftKey] ?? ''
+      function setPromptTextFor(peerId, sessionId, value) {
+        const key = `${peerId}:${sessionId}`
+        setDraftBySession((previous) => {
+          if ((previous[key] ?? '') === value) return previous
+          if (value === '') {
+            if (previous[key] === undefined) return previous
+            const next = { ...previous }
+            delete next[key]
+            return next
+          }
+          return { ...previous, [key]: value }
+        })
+      }
+      function setPromptText(value) { setPromptTextFor(activePeer, openSession, value) }
       const [sending, setSending] = useState(false)
       /** 对端正在跑的这一轮起始时间（ms），0 表示空闲；用来画「正在分析请求 / 正在思考，用时 N 秒…」。 */
       const [turnStartedAt, setTurnStartedAt] = useState(0)
@@ -1845,7 +1862,7 @@ const markdownLabels = {
         if (bodyRef.current !== null) bodyRef.current.scrollTop = bodyRef.current.scrollHeight
         if (line.startsWith('/')) {
           await runCommand(peerId, sessionId, line, attachments)
-          setPromptText('')
+          setPromptTextFor(peerId, sessionId, '')
           resetComposerHeight()
           /* 只撤这条会话的 claim（发送发生在 peerId/sessionId，未必是当前打开的那条）。 */
           setPendingCommandFor(peerId, sessionId, null)
@@ -1871,7 +1888,7 @@ const markdownLabels = {
             },
           })
           const envelope = envelopeOf(result, '对端拒绝了这条消息')
-          setPromptText('')
+          setPromptTextFor(peerId, sessionId, '')
           resetComposerHeight()
           setError('')
           return true
