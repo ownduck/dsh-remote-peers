@@ -1,6 +1,6 @@
 /** 图标层：内联 SVG 字形（取原生 artwork 的原路径）集中在这里，只依赖 react 与样式令牌。 */
 import { createElement } from 'react'
-import { styles } from './theme.js'
+import { styles, T } from './theme.js'
 
 const h = createElement
 /** 宿主原生图标（文件夹开/合等）：取不到时退回自绘路径。 */
