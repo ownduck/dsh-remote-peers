@@ -98,7 +98,7 @@ npm run probe     # 面板的无头渲染冒烟
 npm run audit     # src/client.js 的死声明 / 重复块检查
 ```
 
-结构：`index.mjs` 是 Host 面（网关、路由、本机副本）；`src/client.js` 是 Client 面（面板 UI）；
+结构：`index.mjs` 是 Host 面（网关、路由、本机副本）；`src/client.js` 是 Client 面入口（面板 UI 的状态、RPC 与布局），样式令牌、图标字形、预览与语义助手分别拆在 `src/theme.js`、`src/icons.js`、`src/preview.js`、`src/conversation.js`；
 `scripts/build.mjs` 打客户端产物；`probes/` 是冒烟脚本；`vendor/pdfjs` 是预览要用的资源。
 实现细节见 [`docs/internals.zh-CN.md`](docs/internals.zh-CN.md)。
 

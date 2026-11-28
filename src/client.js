@@ -1,9 +1,9 @@
 /** 源码入口（esbuild 打桩前）：不带上 ModuleLoader 外壳，构建脚本统一加 banner/footer。 */
 const react = require('react')
-const PDFJS = require('pdfjs-dist')
-const XLSX_LIB = require('xlsx')
-/** 构建期内联的 pdf.js worker 源码（已去掉 export 尾巴，按普通 worker 运行）。 */
-import pdfWorkerSource from '../vendor/pdfjs/pdf.worker.min.mjs'
+import { SCROLL_SKIN, T, styles } from './theme.js'
+import { copyGlyph, checkGlyph, databaseGlyph, gaugeGlyph, contextGlyph, downloadGlyph, openInAppGlyph, folderGlyph, navFolderGlyph, caretDownGlyph, refreshGlyph, fullscreenGlyph, exitFullscreenGlyph, collapseGlyph, caretRightGlyph, triangleFillGlyph, renameGlyph, pinGlyph, newChatGlyph, searchGlyph, slidersGlyph, listGlyph, eyeOffGlyph, chatGlyph, archiveGlyph, backArrowGlyph, fileGlyph, closeGlyph, warningGlyph, retryGlyph, sendGlyph, spinnerGlyph, sendingGlyph, toBottomGlyph, plusGlyph } from './icons.js'
+import { assetUrlOf, diagNote, pdfjsEngine, pdfBinaryDataFactory, startPdfWorker, PdfPreview, ImagePreview, xlsxEngine, ExcelPreview, renderPreviewLoading, formatBytes, tableGrid, tableFormulaBar, renderCsvBody, previewModeOf, extOf, parseCsvRows, columnName } from './preview.js'
+import { modelNameOf, permissionLabel, permissionOf, presetNameOf, selectionOf, metricsOf, effortOf, processToolLabelOf, processToolKind, processKindLabelOf, processToolSummary, oneLine, speedText, cacheHitText, formatTokens, formatExactTokens, formatDurationCompact } from './conversation.js'
 /** 第二层逐行左侧图标的原生 SVG 内联（ui-primitives artwork 的 1px regular 版，14px 显示）。 */
 const PROCESS_ROW_ICONS = {
   think: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke-width="1"><path d="M10.2854 5.71481C12.9673 8.39663 14.1182 11.5938 12.8562 12.8559C11.5942 14.1179 8.39706 12.9669 5.71518 10.2851C3.03333 7.60323 1.88236 4.40608 3.14441 3.14403C4.40644 1.882 7.6036 3.03297 10.2854 5.71481Z" stroke="currentColor"></path><path d="M10.2854 10.2851C7.6036 12.9669 4.40644 14.1179 3.14441 12.8559C1.88236 11.5938 3.03333 8.39663 5.71518 5.71481C8.39706 3.03297 11.5942 1.882 12.8562 3.14403C14.1182 4.40608 12.9673 7.60323 10.2854 10.2851Z" stroke="currentColor"></path><path d="M8.86291 8.0002C8.86291 8.47549 8.47762 8.86087 8.00224 8.86087C7.52694 8.86087 7.1416 8.47549 7.1416 8.0002C7.1416 7.52485 7.52694 7.13953 8.00224 7.13953C8.47762 7.13953 8.86291 7.52485 8.86291 8.0002Z" fill="currentColor"></path></svg>',
@@ -187,149 +187,7 @@ const markdownLabels = {
   footnotes: '脚注',
 }
 
-    /** 能直接作为图片预览的扩展名（其余走文本/表格视图）。 */
-    const IMAGE_SUFFIXES = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp', 'svg', 'ico'])
-/** 右侧面板能内嵌渲染的类型：PDF 走 `<iframe>`、音视频走 `<video>/<audio>`，字节由转发路由直供。 */
-const PDF_SUFFIXES = new Set(['pdf'])
-const VIDEO_SUFFIXES = new Set(['mp4', 'webm', 'mov', 'm4v', 'ogv', 'mkv', 'avi'])
-const AUDIO_SUFFIXES = new Set(['mp3', 'wav', 'm4a', 'flac', 'ogg', 'aac', 'opus'])
-/** Office 容器格式：对端 `officeKit/render` 转成 PDF 再看（与主体 office 同一批扩展名，表格另走 SheetJS）。 */
-const OFFICE_SUFFIXES = new Set(['doc', 'docx', 'ppt', 'pptx'])
-/** 纯文本系：只有这些扩展名才按行分页读取，其余（zip/docx/xlsx…）按二进制处理。 */
-const TEXT_SUFFIXES = new Set([
-  'txt', 'text', 'log', 'md', 'markdown', 'csv', 'tsv', 'json', 'jsonc', 'jsonl', 'ndjson',
-  'js', 'mjs', 'cjs', 'ts', 'mts', 'cts', 'tsx', 'jsx', 'css', 'scss', 'less', 'html', 'htm',
-  'xml', 'svgz', 'yaml', 'yml', 'toml', 'ini', 'cfg', 'conf', 'env', 'properties', 'gitignore',
-  'py', 'go', 'rs', 'java', 'kt', 'c', 'h', 'cc', 'cpp', 'hpp', 'cs', 'php', 'rb', 'lua', 'pl',
-  'sh', 'bash', 'zsh', 'ps1', 'bat', 'cmd', 'sql', 'gradle', 'dockerfile', 'makefile', 'lock',
-  'srt', 'vtt', 'diff', 'patch', 'tex', 'rtf',
-])
-/**
- * 扩展名 → 语法语言，逐条照抄主体 `packages/util/code-language/src/index.ts` 的
- * `LANGUAGE_EXTENSIONS`（`CODE_HIGHLIGHT_EXTENSIONS` 就是它的键集合）。
- * 命中的文件按 `code` 预览：交给原生 `MarkdownText` 的代码块渲染，拿到和高亮同一个引擎。
- */
-const LANGUAGE_BY_EXT = new Map(Object.entries({
-  typescript: ['ts', 'tsx', 'mts', 'cts'],
-  javascript: ['js', 'jsx', 'mjs', 'cjs'],
-  shellscript: ['sh', 'bash', 'zsh'],
-  fish: ['fish'],
-  json: ['json', 'jsonc', 'jsonl', 'ndjson', 'ipynb'],
-  python: ['py', 'pyw', 'pyi'],
-  ruby: ['rb', 'rake', 'gemspec'],
-  go: ['go'],
-  rust: ['rs'],
-  java: ['java'],
-  c: ['c', 'h'],
-  cpp: ['cc', 'cpp', 'cxx', 'hh', 'hpp', 'hxx'],
-  csharp: ['cs'],
-  kotlin: ['kt', 'kts'],
-  swift: ['swift'],
-  php: ['php'],
-  yaml: ['yaml', 'yml'],
-  toml: ['toml'],
-  ini: ['ini', 'conf', 'cfg', 'properties'],
-  dotenv: ['env'],
-  diff: ['diff', 'patch'],
-  http: ['http'],
-  mdx: ['mdx'],
-  rst: ['rst'],
-  latex: ['tex', 'sty', 'cls'],
-  bibtex: ['bib'],
-  asciidoc: ['adoc'],
-  css: ['css'],
-  scss: ['scss'],
-  less: ['less'],
-  sql: ['sql'],
-  xml: ['xml', 'xsd', 'xsl', 'xslt', 'plist'],
-  lua: ['lua'],
-  bat: ['bat', 'cmd'],
-  powershell: ['ps1', 'psm1', 'psd1'],
-  r: ['r'],
-  julia: ['jl'],
-  dart: ['dart'],
-  scala: ['scala'],
-  clojure: ['clj', 'cljs', 'edn'],
-  erlang: ['erl', 'hrl'],
-  elixir: ['ex', 'exs'],
-  haskell: ['hs'],
-  fsharp: ['fs', 'fsi', 'fsx'],
-  vb: ['vb'],
-  perl: ['pl', 'pm'],
-  verilog: ['v'],
-  'system-verilog': ['sv', 'svh'],
-  graphql: ['graphql', 'gql'],
-  proto: ['proto'],
-  hcl: ['tf', 'tfvars', 'hcl'],
-  nix: ['nix'],
-  vue: ['vue'],
-  svelte: ['svelte'],
-  make: ['makefile', 'mk'],
-  cmake: ['cmake'],
-  groovy: ['gradle', 'groovy'],
-}).flatMap(([language, suffixes]) => suffixes.map((suffix) => [suffix, language])))
 
-    /** 滚动条皮肤（动态类 CSS 做不到 ::-webkit-scrollbar，只能注入一条只作用于本插件容器的样式）： 5px 宽、透明轨道、`scrollbar-bg-l1` 圆角拇指、hover 换 `scrollbar-hover-l1` —— 与 ui-theme `scrollbar.css` 同值。刻意... */
-    const SCROLL_SKIN = [
-      '[data-remote-peers-scroll], [data-remote-peers-scroll] * { --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l1, #e5e5e5);'
-      + ' --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l1, #d0d0d0); }',
-      '[data-remote-peers-scroll]::-webkit-scrollbar, [data-remote-peers-scroll] *::-webkit-scrollbar { width: 5px; height: 5px; }',
-      '[data-remote-peers-scroll]::-webkit-scrollbar-track, [data-remote-peers-scroll] *::-webkit-scrollbar-track { margin: 2px; background: transparent; }',
-      '[data-remote-peers-scroll]::-webkit-scrollbar-thumb, [data-remote-peers-scroll] *::-webkit-scrollbar-thumb { border: 0 solid transparent;'
-      + ' border-radius: 999px; corner-shape: round; background: var(--dsh-scrollbar-thumb); background-clip: content-box; }',
-      '[data-remote-peers-scroll]::-webkit-scrollbar-thumb:hover, [data-remote-peers-scroll] *::-webkit-scrollbar-thumb:hover {'
-      + ' background-color: var(--dsh-scrollbar-thumb-hover); }',
-      '[data-remote-peers-scroll]::-webkit-scrollbar-corner, [data-remote-peers-scroll] *::-webkit-scrollbar-corner { background: transparent; }',
-      /* 面板工具钮 hover：原生 `.tool:hover` */
-      '[data-rp-tool]:hover { color: var(--dsw-alias-label-primary, inherit);'
-      + ' background: var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.06)); }',
-      /* 页签关闭钮 hover：原生 `.tabClose:hover` */
-      '[data-rp-tab-close]:hover { color: var(--dsw-alias-label-primary, inherit);'
-      + ' background: var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.06)); }',
-      /* 改动卡片：header/行/折叠条的 hover，以及 hover 时统计换成「在侧边栏预览」 */
-      '[data-rp-change-row]:hover, [data-rp-change-toggle]:hover {'
-      + ' background: var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.06)); }',
-      '[data-rp-change-header]:hover { background: var(--dsw-alias-card-fill-hover, #f2f3f5); }',
-      '[data-rp-change-header]:hover [data-rp-change-counts] { display: none; }',
-      '[data-rp-change-header]:hover [data-rp-change-hint] { display: inline; }',
-      /* 会话树行：hover 全部交给 CSS（原生就是 `:hover`）。行在指针底下被移除/插入时，浏览器会把 hover
-         直接交给现在占位的行；用 React 的 hover 状态则收不到 mouseenter（鼠标没动），会出现「上面一行
-         被归档后消失，下一行不亮而浮在里层的按钮还在」的错位。 */
-      '[data-rp-row="session"]:hover, [data-rp-row="folder"][data-rp-open="true"] { background: var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.04)); }',
-      '[data-rp-row] [data-rp-actions] { display: none; }',
-      '[data-rp-row] [data-rp-resting] { display: inline-flex; }',
-      '[data-rp-row]:hover [data-rp-actions], [data-rp-row][data-rp-open="true"] [data-rp-actions] { display: inline-flex; }',
-      '[data-rp-row]:hover [data-rp-resting], [data-rp-row][data-rp-open="true"] [data-rp-resting] { display: none; }',
-      '[data-rp-row] [data-rp-folder-icon] { display: inline-flex; }',
-      '[data-rp-row] [data-rp-chevron] { display: none; }',
-      '[data-rp-row]:hover [data-rp-folder-icon] { display: none; }',
-      '[data-rp-row]:hover [data-rp-chevron] { display: inline-flex; }',
-      /* 草稿占位：原生 InputBar `.placeholder` 的 `label-caption`（figma 34:10434 = #ADB2B8 亮 / #81858C 暗），
-         浏览器默认占位色比它深一档，字形看着也更实。 */
-      '.rp-composer-input::placeholder { color: var(--dsw-alias-label-caption, #ADB2B8); opacity: 1; }',
-      /* 文档加载指示器：原生 `StateDot` ongoing 的 1.5s 旋转 + 描边呼吸（同一条周期） */
-      '@keyframes dsh-rp-spin { to { transform: rotate(360deg); } }',
-      /* 待发附件上传中：原生 `.progressBar` 的 1.2s 往返扫条（缩略图与文件卡共用） */
-      '@keyframes dsh-rp-upload { from { transform: translateX(-70%); } to { transform: translateX(220%); } }',
-      '@keyframes dsh-rp-dash { 0% { stroke-dasharray: 12 150; stroke-dashoffset: 0; }'
-      + ' 50% { stroke-dasharray: 24 150; stroke-dashoffset: -6; }'
-      + ' 100% { stroke-dasharray: 12 150; stroke-dashoffset: 0; } }',
-      /* 轮次导航：竖轨隐藏滚动条（原生 `.scroller::-webkit-scrollbar { display: none }`） */
-      '[data-rp-turn-rail]::-webkit-scrollbar { display: none; }',
-      '@keyframes dsh-rp-turn-preview-in { from { opacity: 0; transform: translateX(4px); }'
-      + ' to { opacity: 1; transform: translateX(0); } }',
-      /* 复制成功的回执：按钮底色淡入 + 轻微弹一下 */
-      '@keyframes dsh-rp-copied { 0% { transform: scale(0.92); } 60% { transform: scale(1.04); }'
-      + ' 100% { transform: scale(1); } }',
-      /* 思考行：hover 时图标让位给 chevron（原生 `.iconIdle` / `.chevronHover`） */
-      '[data-rp-think-row]:hover { color: var(--dsw-alias-label-secondary, #4b5563); }',
-      '[data-rp-think-row]:hover [data-rp-think-icon] { opacity: 0; }',
-      '[data-rp-think-row]:hover [data-rp-think-chevron] { opacity: 1; }',
-      /* 文字 shimmer 扫过（原生 `TextShimmer` 的两条反向关键帧，这里只做遮罩副本） */
-      '@keyframes dsh-rp-shimmer { 0% { transform: translateX(-100%); }'
-      + ' 66.6667%, 100% { transform: translateX(100%); } }',
-
-    ].join('\n')
 
     /** 原生宽度偏好键（`ConversationWidthControls` 写的同一个 localStorage）。 */
     const WIDTH_PREF_KEY = 'dsh.conversation.contentWidth'
@@ -380,625 +238,6 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
     const PANEL_ORDER_BASE = 1_000_000
 
     /** 面板宽度约定：与 main 列一致，自身负责滚动。 */
-    /** 样式里复用最多的设计令牌：同一 var 的同一 fallback 只写一次。 */
-    const T = {
-      ter: 'var(--dsw-alias-label-tertiary, #9aa0a6)',
-      pri: 'var(--dsw-alias-label-primary, inherit)',
-      sec: 'var(--dsw-alias-label-secondary, inherit)',
-      radiusMd: 'var(--dsw-radius-md, 8px)',
-      radiusSm8: 'var(--dsw-radius-sm, 8px)',
-      radiusLg10: 'var(--dsw-radius-lg, 10px)',
-      menuBlur: 'var(--dsw-menu-backdrop-filter, blur(40px) saturate(150%))',
-      elevationProminent: 'var(--dsw-elevation-prominent, 0 12px 32px rgba(0,0,0,0.16))',
-    }
-    const styles = {
-      page: { height: '100%', overflowY: 'auto', padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 20 },
-      card: { border: '1px solid var(--dsh-border, #e5e5e5)', borderRadius: 12, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 10 },
-      title: { fontSize: 15, fontWeight: 600, margin: 0 },
-      row: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
-      mono: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12.5 },
-      muted: { opacity: 0.65, fontSize: 12.5 },
-      button: { border: '1px solid var(--dsh-border, #d8d8d8)', background: 'transparent', borderRadius: 8, padding: '5px 12px', cursor: 'pointer', fontSize: 13 },
-      /* 列表里的动作钮：四颗同宽同高，文案再长（「检测中」+ 转圈）也塞得下，列宽不再被挤。 */
-      tableAction: { boxSizing: 'border-box', width: 66, height: 28, padding: 0, border: '1px solid var(--dsh-border, #d8d8d8)', background: 'transparent', borderRadius: 8, cursor: 'pointer', fontSize: 13, textAlign: 'center', whiteSpace: 'nowrap' },
-      tableActions: { display: 'inline-flex', alignItems: 'center', gap: 8 },
-      /* 状态列定宽：在线 ↔ 不可用：<原因> 切换时不再让整张表重排；过长原因省略，全文挂 title。 */
-      statusCell: { width: 200, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'middle' },
-      primary: { border: '1px solid transparent', background: 'var(--dsh-accent, #1f6feb)', color: '#fff', borderRadius: 8, padding: '5px 12px', cursor: 'pointer', fontSize: 13 },
-      /** 按钮内「转圈 + 文案」的横向排布。 */
-      buttonBusy: { display: 'inline-flex', alignItems: 'center', gap: 5 },
-      /** 复制成功回执：绿色文字 + 弹一下。 */
-      buttonCopied: { border: '1px solid var(--dsw-alias-state-success-border, #bfe3c6)', background: 'var(--dsw-alias-state-success-fill, #eaf7ec)', color: '#1a7f37', borderRadius: 8, padding: '5px 12px', cursor: 'default', fontSize: 13, animation: 'dsh-rp-copied 260ms ease-out', transformOrigin: 'center' },
-      input: { border: '1px solid var(--dsh-border, #d8d8d8)', background: 'transparent', borderRadius: 8, padding: '5px 9px', fontSize: 13, minWidth: 0 },
-      /** 必填未填：输入框描边转红（不打断输入）。 */
-      inputInvalid: { border: '1px solid #c0392b' },
-      /** 必填标记（原生表单也只在标签后加 *）。 */
-      fieldRequired: { marginLeft: 2, color: '#c0392b' },
-      /** 流式区：思考行 + 正文，块间 16px（原生 `AssistantMarkdown` 的 `.body` gap）。 */
-      liveFlow: { display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 },
-      /** 本轮进行中的状态行（「正在分析请求」）：24px 行、16px 图标位、gap 6，与思考行同规格。 */
-      liveStatusRow: { display: 'flex', alignItems: 'center', gap: 6, height: 24, minWidth: 0, overflow: 'hidden', color: 'var(--dsw-alias-label-tertiary, #8a8f98)', fontSize: 13, lineHeight: '24px' },
-      liveStatusIcon: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 'none', width: 16, height: 16, color: 'inherit' },
-      /** 思考折叠行（原生 `ReasoningRow` + `DisclosureRow`：24px 行、16px 图标框、gap 6）。 */
-      thinkRoot: { display: 'flex', flexDirection: 'column', minWidth: 0 },
-      thinkRow: { display: 'flex', alignItems: 'center', width: '100%', height: 24, minWidth: 0, overflow: 'hidden', padding: 0, border: 'none', background: 'transparent', color: 'var(--dsw-alias-label-tertiary, #8a8f98)', fontFamily: 'inherit', fontSize: 'inherit', textAlign: 'left', cursor: 'pointer' },
-      thinkLeading: { position: 'relative', flex: 'none', width: 16, height: 16, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginRight: 6, color: 'inherit' },
-      thinkIconIdle: { display: 'inline-flex', transition: 'opacity 100ms ease' },
-      thinkChevron: { position: 'absolute', inset: 0, margin: 'auto', opacity: 0, transition: 'opacity 100ms ease', display: 'block' },
-      thinkTitle: { flex: 'none', fontSize: 13, lineHeight: '24px', fontWeight: 400, color: 'inherit' },
-      thinkSeparator: { flex: 'none', width: 2, height: 2, margin: '0 8px', borderRadius: 1, background: 'var(--dsw-alias-label-caption, #b9bec8)' },
-      thinkSummary: { minWidth: 0, overflow: 'hidden', flex: '1 1 auto', fontSize: 13, lineHeight: '20px', whiteSpace: 'nowrap', color: 'inherit' },
-      /** 流式中：右端 48px 渐隐、不省略（原生 `.summary[data-streaming]`）。 */
-      thinkSummaryStreaming: { minWidth: 0, overflow: 'visible', flex: '1 1 auto', fontSize: 13, lineHeight: '20px', whiteSpace: 'nowrap', color: 'inherit', maskImage: 'linear-gradient(to right, black calc(100% - 48px), transparent)', WebkitMaskImage: 'linear-gradient(to right, black calc(100% - 48px), transparent)' },
-      thinkSummaryText: { display: 'block', overflow: 'hidden', textOverflow: 'ellipsis' },
-      thinkBody: { padding: '4px 0 4px 22px', minWidth: 0, color: 'var(--dsw-alias-label-secondary, #4b5563)' },
-      /** 思考行的 shimmer（原生 `TextShimmer`：底稿 + 一道扫过的遮罩副本）。 */
-      shimmerRoot: { position: 'relative', display: 'inline-grid', maxWidth: '100%', minWidth: 0, verticalAlign: 'top' },
-      shimmerContent: { display: 'flex', alignItems: 'center', minWidth: 0 },
-      shimmerDecoration: { position: 'absolute', inset: 0, overflow: 'clip', pointerEvents: 'none', userSelect: 'none' },
-      shimmerSweep: { position: 'absolute', inset: 0, overflow: 'hidden', color: 'var(--dsw-alias-label-shimmer, #c3c8d1)', maskImage: 'linear-gradient(105deg, transparent 0%, black 40% 60%, transparent 100%)', WebkitMaskImage: 'linear-gradient(105deg, transparent 0%, black 40% 60%, transparent 100%)', transform: 'translateX(-100%)', animation: 'dsh-rp-shimmer 1.5s steps(48, end) 0.3s infinite' },
-      /** 局域网地址：逐条排开，每条后面跟一个复制图标。 */
-      addressList: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', columnGap: 14, rowGap: 6, minWidth: 0 },
-      addressChip: { display: 'inline-flex', alignItems: 'center', gap: 2, minWidth: 0 },
-      addressCopy: { flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 20, height: 20, padding: 0, border: 'none', borderRadius: 6, background: 'transparent', color: T.ter, cursor: 'pointer', lineHeight: 1 },
-      addressCopyDone: { flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 20, height: 20, padding: 0, border: 'none', borderRadius: 6, background: 'transparent', color: '#1a7f37', cursor: 'default', lineHeight: 1, animation: 'dsh-rp-copied 260ms ease-out', transformOrigin: 'center' },
-      error: { color: '#c0392b', fontSize: 12.5 },
-      table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
-      th: { textAlign: 'left', fontWeight: 500, opacity: 0.6, padding: '6px 8px', borderBottom: '1px solid var(--dsh-border, #e5e5e5)' },
-      td: { padding: '6px 8px', borderBottom: '1px solid var(--dsh-border-weak, #f0f0f0)' },
-      /* 会话树（照原生左栏「工作区 → 会话」的形状：文件夹行 + 缩进会话行 + 右侧相对时间） */
-      sessionTree: { display: 'flex', flexDirection: 'column', gap: 1 },
-      /* 图标 SVG 的公共外形：16 视图框、lex:none、随文字色（50 处重复的 prop 对象收敛到这里） */
-      iconBox: { viewBox: '0 0 16 16', style: { flex: 'none', display: 'block', color: 'inherit' } },
-      /* 行本体：原生 `.projectRow`/`.sessionRow` —— 32px、0 8px、md 圆角、gap 6 */
-      sessionTreeRow: { display: 'flex', alignItems: 'center', gap: 6, boxSizing: 'border-box', width: '100%', height: 32, margin: 0, padding: '0 8px', border: 0, borderRadius: 'var(--dsw-radius-md, 8px)', color: 'inherit', font: 'inherit', textAlign: 'left', cursor: 'pointer' },
-      /* 前导槽：原生 `.slot` —— 16×20 居中，常态放文件夹图标，hover 换成实心三角（`.projectRow:hover` 的 folder/chevron 互换） */
-      treeLeadSlot: { flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 16, height: 20, color: 'var(--dsw-alias-label-tertiary, #a6a9ae)' },
-      sessionTreeLabel: { flex: '1 1 auto', minWidth: 0, overflow: 'hidden', fontSize: 14, lineHeight: '20px', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-      /* 已归档行留在原位、只降一档灰（原生 `.sessionRow.archived .title { color: label-caption }`） */
-      sessionTreeLabelArchived: { color: 'var(--dsw-alias-label-caption, #ADB2B8)' },
-      /* 置顶行的常驻标记：原生 `.pinIndicator` —— 16×20 居中、左 6、label-caption，不可点 */
-      sessionTreePin: { flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 16, height: 20, marginLeft: 6, color: 'var(--dsw-alias-label-caption, #ADB2B8)' },
-      sessionTreeMeta: { flex: 'none', fontSize: 11, lineHeight: '16px', color: 'var(--dsw-alias-label-tertiary, #a6a9ae)' },
-      sessionTreeTime: { flex: 'none', fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-label-tertiary, #a6a9ae)' },
-      /* 文件夹行右侧的新会话钮：原生 `.iconButton` —— 24×24 命中区（margin -4 压回 16）、14 图标、`label-tertiary`，hover 转 `label-primary` */
-      sessionTreeAction: { flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, margin: -4, padding: 0, border: 0, borderRadius: 'var(--dsw-radius-xs, 4px)', background: 'transparent', color: 'var(--dsw-alias-label-tertiary, #a6a9ae)', cursor: 'pointer' },
-      /* 工作区行/会话行 hover 时的动作列：原生 `.rowActions` —— 20 高、gap 13（两枚 -4 外边距的 24 钮叠出 ~5px 视觉间距）；display 交给 CSS 的 `[data-rp-actions]` */
-      sessionTreeActions: { flex: 'none', alignItems: 'center', height: 20, gap: 13 },
-      /* 会话行常态右位：原生 `.rowResting` —— 20 高、gap 6；display 交给 CSS 的 `[data-rp-resting]` */
-      sessionTreeResting: { flex: 'none', alignItems: 'center', height: 20, gap: 6 },
-      /* 工作区 ⋯ 菜单：原生 Menu `.list` —— 4 内距、144~360 宽、lg 圆角、prominent 阴影 */
-      wsMenu: { position: 'fixed', zIndex: 1100, boxSizing: 'border-box', padding: 4, minWidth: 144, maxWidth: 360, borderRadius: 'var(--dsw-radius-lg, 10px)', background: 'var(--dsw-menu-surface-fill, rgba(252,253,254,0.7))', backdropFilter: T.menuBlur, WebkitBackdropFilter: T.menuBlur, boxShadow: T.elevationProminent },
-      menuIconSlot: { display: 'inline-flex', flex: 'none', width: 14, justifyContent: 'center', color: 'inherit' },
-      /* 重命名对话框：原生 Modal `.dialog`（380 宽、20 gap、底部 24）+ WorkspaceBrowser `.renameInput` */
-      renameDialog: { boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 20, width: 'min(380px, 100%)', padding: '0 0 24px', overflow: 'hidden', borderRadius: 'var(--dsw-radius-panel, 12px)', background: 'var(--dsw-alias-bg-layer-2, #fff)', boxShadow: T.elevationProminent },
-      renameInput: { boxSizing: 'border-box', width: '100%', height: 44, padding: '7px 14px', border: '0.5px solid var(--dsw-alias-border-l4, #dcdde0)', borderRadius: 'var(--dsw-radius-lg, 12px)', outline: 'none', background: 'transparent', fontSize: 14, fontWeight: 400, lineHeight: '22px', color: T.pri },
-      renameErrorText: { marginTop: 8, fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-state-error-primary, #d92d20)' },
-      /* 面包屑的可点段：文字 + 下拉箭头，hover 浮出底色（原生 `.crumb`） */
-      crumbButton: { display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: 220, padding: '4px 6px 4px 8px', border: 'none', borderRadius: 'var(--dsw-radius-sm, 6px)', background: 'transparent', color: T.sec, cursor: 'pointer', font: 'inherit', fontSize: 14, lineHeight: '20px' },
-      crumbLabel: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-      crumbCaret: { flex: 'none', display: 'inline-flex', color: T.ter },
-      /* 面包屑分隔符：原生 `.crumbSep` —— 14px caption 灰 */
-      crumbSep: { flex: 'none', padding: '0 2px', fontSize: 14, lineHeight: '20px', color: 'var(--dsw-alias-label-caption, #ADB2B8)' },
-      // ── 会话页（照原生版式：通栏正文 + 右侧用户气泡 + 药丸输入框） ──
-      conversationPage: { position: 'relative', display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 },
-      /** 会话页里的失败提示：原生用 toast 报告「打开失败」，这里贴底居中一条，不挡正文。 */
-      openErrorToast: { position: 'absolute', zIndex: 6, left: '50%', bottom: 140, transform: 'translateX(-50%)', maxWidth: 'min(520px, 84%)', padding: '8px 14px', borderRadius: 10, background: 'var(--dsw-alias-toast-bg, rgba(32,34,38,0.92))', color: 'var(--dsw-alias-label-on-color, #fff)', fontSize: 13, lineHeight: '20px', boxShadow: '0 4px 16px rgba(0,0,0,0.18)', pointerEvents: 'none' },
-      /* 头部整块：标题行 30px + 页签行 25px（margin-top 10），底边 0.5px l3 —— ConversationRoot `.header` */
-      headerBlock: { flex: 'none', boxSizing: 'border-box', borderBottom: '0.5px solid var(--dsw-alias-border-l3, #e3e4e6)', background: 'var(--dsw-alias-bg-base, transparent)' },
-      convHeader: { display: 'flex', alignItems: 'center', gap: 8, minHeight: 30, padding: '10px 28px 0 20px' },
-      /* Modal .close：28×28、sm 圆角、无边框、二级文字色 */
-      ghostButton: { flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, border: 'none', borderRadius: 'var(--dsw-radius-sm, 6px)', background: 'transparent', color: T.sec, cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: 0 },
-      /* 面包屑当前段：14/20、500、primary，padding 4px 8px —— `.crumbCurrent` */
-      convTitle: { fontSize: 14, fontWeight: 500, lineHeight: '20px', padding: '4px 8px', maxWidth: 420, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-      modeChip: { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, lineHeight: '20px', color: T.ter, whiteSpace: 'nowrap' },
-      /* 标题栏「⋯」：28×28 ghost 按钮，展开时浮层卡片锚在它下方右侧 */
-      headerMoreButton: { flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, border: 'none', borderRadius: 'var(--dsw-radius-sm, 6px)', background: 'transparent', color: T.sec, cursor: 'pointer', fontSize: 15, opacity: 0.7, padding: 0 },
-      /* 会话页返回钮：30×30 圆角图标钮，描边透明 → hover 才浮出底色与边线（比原来的文本 ← 明显） */
-      convBack: { flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, marginLeft: -6, padding: 0, border: '0.5px solid transparent', borderRadius: 8, background: 'transparent', color: T.sec, cursor: 'pointer', transition: 'background-color 120ms ease, border-color 120ms ease, color 120ms ease' },
-      headerMoreWrap: { position: 'relative', flex: 'none', display: 'inline-flex' },
-      /* 上下文菜单卡片：Menu.module.css `.list`（padding 4、radius-lg、elevation-prominent、l1 描边） */
-      headerMenu: { position: 'absolute', top: 'calc(100% + 4px)', right: 0, zIndex: 120, boxSizing: 'border-box', padding: 4, display: 'flex', flexDirection: 'column', minWidth: 196, maxWidth: 360, borderRadius: T.radiusLg10, background: 'var(--dsw-menu-surface-fill, rgba(255,255,255,0.72))', backdropFilter: T.menuBlur, WebkitBackdropFilter: T.menuBlur, boxShadow: 'var(--dsw-elevation-prominent, 0.5px 0 0 0 var(--dsw-alias-border-l1, #ececec), 0 12px 32px rgba(0,0,0,0.16))' },
-      /* 行：Menu.module.css `.item` —— 34px 最小高、6px 8px、6px 间距、13/20 */
-      headerMenuItem: { display: 'flex', alignItems: 'center', gap: 6, width: '100%', minHeight: 34, padding: '6px 8px', border: 'none', borderRadius: T.radiusMd, background: 'transparent', color: T.pri, cursor: 'pointer', fontSize: 13, lineHeight: '20px', textAlign: 'left' },
-      headerMenuItemIcon: { display: 'inline-flex', flex: 'none', width: 14, height: 14, alignItems: 'center', justifyContent: 'center', color: 'var(--dsw-alias-menu-icon, #6f7377)' },
-      headerMenuItemLabel: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-      /* 分隔线：`.separator` —— 0.5px、margin 3px 8px、border-l2 */
-      /* 复制结果 toast：shell.overlay 的浮层提示 */
-      toastWrap: { position: 'absolute', left: '50%', bottom: 28, transform: 'translateX(-50%)', zIndex: 200, padding: '8px 14px', borderRadius: T.radiusMd, background: 'var(--dsw-alias-bg-layer-3, rgba(30,30,30,0.86))', color: 'var(--dsw-alias-label-on-color, #fff)', fontSize: 13, lineHeight: '20px', boxShadow: T.elevationProminent },
-      /* 页签行：25px 行高、10px 上距、8px 左内边距、32px 间距 —— ConversationRoot `.tabs` / `.viewTabs` / `.tab` */
-      tabs: { display: 'flex', gap: 32, minHeight: 25, marginTop: 10, paddingLeft: 8, boxSizing: 'border-box' },
-      tabActive: { position: 'relative', fontSize: 13, lineHeight: '16px', fontWeight: 500, color: 'var(--dsw-alias-state-business-primary, #1f6feb)', padding: '10px 10px 9px', marginTop: -10, borderBottom: '2px solid var(--dsw-alias-state-business-primary, #1f6feb)', cursor: 'default' },
-      /* 正文滚动区：上下 16px、左右 = 输入卡留白 16 + 16 —— ChatView `.scroll` */
-      convBody: { flex: 1, minHeight: 0, overflowY: 'auto', padding: '16px 32px', marginRight: 2, scrollbarGutter: 'stable' },
-      /* 正文区（滚动区 + 右侧预览）整体 */
-      bodyArea: { position: 'relative', flex: 1, minHeight: 0, display: 'flex', minWidth: 0 },
-      /* 会话列本体：沉底按钮的定位上下文（只在左栏内，不跟着预览面板变宽） */
-      chatPane: { position: 'relative', flex: '1 1 0', minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' },
-      /* 回到底部：ChatView `.toBottomSlot` / `.toBottom` 逐值 —— 34px 圆钮、floating-fill、panel 阴影、
-         右边缘对齐消息列、距输入卡 16px */
-      toBottom: {
-        display: 'flex', alignItems: 'center', justifyContent: 'center', width: 34, height: 34,
-        /* 槽高 0，靠 -34px 把圆钮整体抬到槽线上方 16px（原生 .toBottom 的 margin-top） */
-        marginTop: -34,
-        padding: 0, border: 0, borderRadius: 100, cornerShape: 'round',
-        color: T.pri,
-        background: 'var(--dsw-alias-button-floating-fill, #f1f2f4)',
-        boxShadow: 'var(--dsw-elevation-panel, 0 0 0 0.5px var(--dsw-alias-border-l3, #e3e4e6), 0 4px 12px rgba(0,0,0,0.08))',
-        cursor: 'pointer', pointerEvents: 'auto',
-      },
-      toBottomHover: { background: 'var(--dsw-alias-button-floating-hover, #e8eaec)' },
-      /* 轮次导航：竖轨贴在会话列右侧 12px、垂直居中 —— TurnNavigator `.frame` */
-      turnRailSlot: { position: 'absolute', top: 0, bottom: 0, right: 0, width: 48, pointerEvents: 'none', zIndex: 7 },
-      turnRail: {
-        position: 'absolute', top: '50%', right: 12, width: 28,
-        transform: 'translateY(-50%)', overflowY: 'auto', overflowX: 'hidden',
-        pointerEvents: 'auto', cursor: 'pointer', scrollbarWidth: 'none',
-      },
-      turnRailTrack: { position: 'relative', display: 'flex', flexDirection: 'column', padding: '6px 0' },
-      turnRailMark: {
-        position: 'relative', width: '100%', height: 10, padding: 0, border: 0,
-        background: 'transparent', cursor: 'pointer', flex: 'none',
-      },
-      /* 刻度：20×2、右对齐、以右端为变换原点 */
-      turnRailTick: {
-        position: 'absolute', top: '50%', right: 0, width: 20, height: 2,
-        borderRadius: 2, transformOrigin: 'right center',
-        transition: 'transform 140ms ease, background-color 140ms ease',
-      },
-      /* 悬停预览卡：左移 10px、300px 宽、最多 100px 高 —— `.preview` */
-      turnPreview: {
-        position: 'absolute', right: 50, boxSizing: 'border-box', transition: 'top 140ms cubic-bezier(0.2, 0.8, 0.2, 1)',
-        width: 300, maxHeight: 100, overflow: 'hidden', padding: '10px 12px',
-        borderRadius: 'var(--dsw-radius-lg, 16px)',
-        color: 'var(--dsw-alias-label-primary, #1f2328)',
-        background: 'var(--dsw-alias-bg-layer-1, #ffffff)',
-        boxShadow: 'var(--dsw-elevation-panel, 0 0 0 0.5px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.12))',
-        pointerEvents: 'none', animation: 'dsh-rp-turn-preview-in 120ms ease-out',
-      },
-      turnPreviewPrompt: {
-        display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 1,
-        overflow: 'hidden', fontSize: 13, fontWeight: 600, lineHeight: '20px',
-      },
-      turnPreviewResponse: {
-        display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 3,
-        overflow: 'hidden', marginTop: 4, fontSize: 12, lineHeight: '18px',
-        color: 'var(--dsw-alias-label-caption, #6b7280)',
-      },
-      /* 消息列：clamp(680px, 列宽 × 0.64, 920px)，与输入卡同一轴 —— `.column` */
-      convColumn: { width: '100%', maxWidth: 'clamp(680px, 64%, 920px)', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 16 },
-      /* 用户消息整体右对齐：气泡 + 6px 后的元信息行 —— MessageItem `.userRow` */
-      userRow: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, minWidth: 0 },
-      /* 历史边缘提示：居中一条 12px 药丸 —— ChatView `.older` / `.older button` */
-      historyEdge: { display: 'flex', justifyContent: 'center', overflowAnchor: 'none' },
-      historyEdgeButton: { display: 'grid', lineHeight: '18px', whiteSpace: 'nowrap', border: 'none', borderRadius: 'var(--dsw-radius-sm, 6px)', padding: '4px 12px', fontSize: 12, fontFamily: 'inherit', color: 'var(--dsw-alias-label-secondary, #4b5563)', background: 'var(--dsw-alias-interactive-bg-hover-solid, #f3f4f6)', cursor: 'pointer' },
-      userStack: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, minWidth: 0, maxWidth: '70.2%' },
-      /* 提问附件行：原生 `UserContent` 里附件在气泡上方、右对齐，图片 gap 10px。 */
-      userAttachmentRow: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, maxWidth: '100%' },
-      userImageGallery: { display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 10, maxWidth: '100%' },
-      userImageFrame: {
-        boxSizing: 'border-box', display: 'grid', flex: '0 0 auto', placeItems: 'center',
-        minWidth: 44, minHeight: 44, padding: 0, overflow: 'hidden', flexShrink: 0,
-        border: '0.5px solid var(--dsw-alias-border-l2-darkmode-thin, #ececec)',
-        borderRadius: 'var(--dsw-radius-xl, 16px)',
-        background: 'var(--dsw-alias-interactive-bg-hover, #f5f5f7)',
-      },
-      userFileStack: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 },
-      /* 图片灯箱：整屏半透明遮罩（仍能看见背后界面）+ 居中原图 + 右上角圆角按钮组 —— ImageLightbox */
-      imageLightboxBackdrop: {
-        position: 'fixed', zIndex: 1200, inset: 0, boxSizing: 'border-box',
-        display: 'grid', placeItems: 'center', padding: 24,
-        background: 'rgba(17, 19, 23, 0.55)', backdropFilter: 'blur(1.5px)',
-      },
-      imageLightboxImage: {
-        maxWidth: '92vw', maxHeight: '88vh', objectFit: 'contain', display: 'block',
-        borderRadius: 'var(--dsw-radius-xl, 16px)', boxShadow: '0 16px 48px rgba(0, 0, 0, 0.45)',
-        cursor: 'default',
-      },
-      imageLightboxTools: { position: 'fixed', top: 20, right: 20, display: 'flex', gap: 8 },
-      imageLightboxTool: {
-        boxSizing: 'border-box', display: 'grid', placeItems: 'center', width: 32, height: 32, padding: 0,
-        border: '0.5px solid var(--dsw-alias-border-l1, #ececec)', borderRadius: T.radiusLg10,
-        background: 'var(--dsw-alias-card-fill, #fff)', color: T.pri, fontSize: 15, fontFamily: 'inherit',
-        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.18)', cursor: 'pointer',
-      },
-      /* 提问里的文件卡：原生 `UserContent .fileCard` —— 240×64、0.5px l2 描边、lg 圆角、8/12 内距 */
-      userFileCard: {
-        boxSizing: 'border-box', display: 'inline-flex', flex: '0 0 240px', alignItems: 'center', gap: 10,
-        width: 240, minHeight: 64, padding: '8px 12px',
-        border: '0.5px solid var(--dsw-alias-border-l1, #ececec)', borderRadius: T.radiusLg10,
-        background: 'var(--dsw-alias-card-fill, #fff)', color: T.pri,
-      },
-      userFileIcon: { flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, color: 'var(--dsw-alias-label-secondary, #55585f)' },
-      userFileContent: { display: 'flex', flex: 1, flexDirection: 'column', minWidth: 0 },
-      userFileName: { overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', color: 'var(--dsw-alias-label-primary, #1f2328)', fontSize: 14, fontWeight: 500, lineHeight: '22px' },
-      userFileMeta: { overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', color: 'var(--dsw-alias-label-tertiary, #8f9399)', fontSize: 12, lineHeight: '15px' },
-      userBubble: { maxWidth: '100%', background: 'var(--dsw-specific-bubble, #eef1f6)', borderRadius: 'var(--dsw-radius-xl, 16px)', padding: '10px 16px', fontSize: 14, lineHeight: '22px', color: T.pri, whiteSpace: 'pre-wrap', wordBreak: 'break-word' },
-      assistantBlock: { fontSize: 14, lineHeight: '24px', color: 'var(--dsw-alias-label-primary, #1f2328)' },
-      /* 消息元信息行：28px 行、8px 间距 —— MessageIconActions `.actions` */
-      msgActions: { display: 'flex', alignItems: 'center', gap: 8, height: 28 },
-      msgAction: { boxSizing: 'border-box', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, padding: 6, border: 'none', borderRadius: T.radiusSm8, background: 'transparent', color: T.ter, cursor: 'pointer' },
-      msgActionIdle: { boxSizing: 'border-box', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, padding: 6, border: 'none', borderRadius: T.radiusSm8, background: 'transparent', color: T.ter, cursor: 'default', opacity: 0.4 },
-      /* 图标按钮外壳：给 tooltip 提供定位锚点 */
-      iconActionWrap: { position: 'relative', display: 'inline-flex', flex: 'none' },
-      /* 深色 tooltip：Tooltip.module.css `.bubble` 口径，side=bottom 偏移 6px 居中；fixed 绘制在内容之上 */
-      iconTooltip: { position: 'fixed', transform: 'translateX(-50%)', zIndex: 1100, display: 'inline-flex', alignItems: 'center', boxSizing: 'border-box', width: 'max-content', padding: '3px 7px', borderRadius: T.radiusSm8, background: 'var(--dsw-alias-tooltip-bg, #2b2f36)', color: 'var(--dsw-alias-tooltip-label, #fff)', fontSize: 13, lineHeight: '20px', whiteSpace: 'nowrap', pointerEvents: 'none' },
-      msgTime: { fontSize: 13, lineHeight: '24px', color: T.ter, whiteSpace: 'nowrap' },
-      msgTimeEnd: { fontSize: 12, lineHeight: '24px', color: T.ter, whiteSpace: 'nowrap' },
-      /* 助手尾部动作行：16px 上距、-6px 左缩进 —— AssistantMarkdown `.actions` */
-      assistantActions: { display: 'flex', alignItems: 'center', gap: 8, height: 28, marginTop: 16, marginLeft: -6 },
-      usagePill: { boxSizing: 'border-box', display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0, height: 28, padding: '6px 8px', border: 'none', borderRadius: T.radiusSm8, background: 'transparent', color: T.ter, fontSize: 12, lineHeight: '24px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', cursor: 'pointer' },
-      usagePillHover: { background: 'var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.05))' },
-      /* 「本轮用量」浮层：stat-dialog `.panel` —— 16px 内边距、lg 圆角、菜单底 + 40px 模糊、prominent 阴影 */
-      usageDialog: { position: 'fixed', zIndex: 1100, boxSizing: 'border-box', width: 'max-content', minWidth: 300, maxWidth: 440, padding: 16, border: '0', borderRadius: 'var(--dsw-radius-lg, 16px)', background: 'var(--dsw-specific-menu, rgba(255,255,255,0.9))', backdropFilter: T.menuBlur, WebkitBackdropFilter: T.menuBlur, boxShadow: T.elevationProminent, color: 'var(--dsw-alias-label-secondary, #5f6368)', fontSize: 12, lineHeight: '18px', maxHeight: 'calc(100vh - 24px)', overflowY: 'auto', cursor: 'default' },
-      usageDialogTitle: { display: 'flex', justifyContent: 'space-between', gap: 16, marginBottom: 8, color: T.pri, fontWeight: 500 },
-      usageDialogTitleLabel: { display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 },
-      usageDialogRule: { marginBottom: 10, borderTop: '0.5px solid var(--dsw-alias-border-l2, #e7e7e7)' },
-      usageDialogDetails: { display: 'grid', gridTemplateColumns: 'minmax(76px, auto) minmax(0, 1fr)', gap: '6px 16px', margin: 0, color: T.ter },
-      usageDialogDt: { minWidth: 0, margin: 0 },
-      usageDialogDd: { minWidth: 0, margin: 0, color: 'var(--dsw-alias-label-secondary, #5f6368)', fontVariantNumeric: 'tabular-nums', textAlign: 'right', overflowWrap: 'anywhere' },
-      /* turn 完成行：33px 高、8px 下内边距、0.5px l2 底边 —— TurnProcessNodeView `.root` */
-      turnProcessRow: { display: 'flex', flexDirection: 'column', alignItems: 'stretch', width: '100%', minWidth: 0, padding: '0 0 8px', border: 'none', borderBottom: '0.5px solid var(--dsw-alias-border-l2, #e7e7e7)', background: 'none', color: T.ter, font: 'inherit', fontSize: 14, lineHeight: '24px', textAlign: 'left', cursor: 'default' },
-      turnProcessHeadLine: { display: 'flex', alignItems: 'center', height: 33, minWidth: 0 },
-      turnProcessHead: { display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0, padding: 0, border: 'none', background: 'none', color: 'inherit', font: 'inherit', cursor: 'pointer' },
-      /* 展开后的第一层：分组行（可再点开一层）+ 第二层的逐步行 —— TurnProcessNodeView 明细 */
-      processList: { display: 'flex', flexDirection: 'column', gap: 2, padding: '4px 0 10px' },
-      processGroup: { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, height: 30, padding: 0, border: 'none', background: 'none', color: 'inherit', font: 'inherit', cursor: 'pointer', textAlign: 'left' },
-      processDetail: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 2,
-    paddingLeft: 22,
-    paddingRight: 4,
-    // 原生 `ChatGroupSeat.module.css .body`：限高居内滚动，超高才出滚动条。
-    maxHeight: 'min(400px, 50vh)',
-    overflowY: 'auto',
-    overscrollBehaviorY: 'auto',
-    scrollbarGutter: 'stable',
-  },
-      processRow: { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, height: 30, color: 'var(--dsw-alias-label-primary, #1f2328)', fontSize: 13, lineHeight: '20px' },
-      processRowIcon: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 16, height: 16, flex: 'none', color: 'var(--dsw-alias-label-tertiary, #8a8f99)', fontSize: 11 },
-      processRowLabel: { flex: 'none', color: 'var(--dsw-alias-label-secondary, #4b5563)', fontSize: 12, lineHeight: '20px' },
-      processRowDot: { flex: 'none', color: 'var(--dsw-alias-label-tertiary, #8a8f99)', fontSize: 12 },
-      processRowText: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--dsw-alias-label-secondary, #4b5563)', fontSize: 13 },
-      heading: { fontSize: 15.5, fontWeight: 700, margin: '18px 0 8px' },
-      bulletRow: { display: 'flex', gap: 8, marginBottom: 4 },
-      code: { fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 12.5, background: 'var(--dsh-surface-weak, #f3f4f6)', borderRadius: 4, padding: '1px 5px' },
-      /* ── present 卡片：Deliverables.module.css `.presented` / `.file` 逐值 ── */
-      presentGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10, minWidth: 0, marginTop: 4 },
-      presentGridSingle: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 10, minWidth: 0, marginTop: 4 },
-      presentCard: {
-        position: 'relative', boxSizing: 'border-box', display: 'flex', alignItems: 'center', gap: 10,
-        minWidth: 0, height: 60, padding: '8px 10px', overflow: 'hidden',
-        border: '0.5px solid var(--dsw-alias-border-l1, #ececec)',
-        borderRadius: T.radiusLg10,
-        background: 'var(--dsw-alias-card-fill, #f8f9fa)',
-        color: T.pri,
-        transition: 'background-color 120ms ease',
-      },
-      presentCardButton: { position: 'absolute', zIndex: 1, inset: 0, width: '100%', padding: 0, border: 0, borderRadius: 'inherit', background: 'transparent', cursor: 'pointer' },
-      presentIcon: {
-        position: 'relative', zIndex: 2, boxSizing: 'border-box', flex: '0 0 auto', display: 'grid', placeItems: 'center',
-        width: 40, height: 40, overflow: 'hidden', pointerEvents: 'none',
-        border: '0.5px solid var(--dsw-alias-border-l1, #ececec)', borderRadius: 10,
-        background: 'var(--dsw-alias-card-tile-fill, #f1f3f5)', color: 'var(--dsw-alias-link, #1f6feb)',
-      },
-      presentBody: { position: 'relative', zIndex: 2, display: 'flex', flex: 1, alignItems: 'center', justifyContent: 'space-between', gap: 12, minWidth: 0, pointerEvents: 'none' },
-      presentDetails: { display: 'flex', flex: 1, flexDirection: 'column', justifyContent: 'center', gap: 2, minWidth: 0 },
-      presentName: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, fontWeight: 500, lineHeight: '20px' },
-      presentDesc: { overflow: 'hidden', color: T.ter, fontSize: 10, fontWeight: 400, lineHeight: '16px', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-      presentActions: { display: 'inline-flex', flex: 'none', pointerEvents: 'auto' },
-      /* 卡片右侧分段按钮：原生 `ui-open-in-app` 的 图标 + caret 双格，24px 高、8px 圆角、发丝描边 */
-      splitButton: { display: 'inline-flex', alignItems: 'stretch', flex: 'none', height: 24, border: '0.5px solid var(--dsw-alias-border-l2, #e3e4e6)', borderRadius: T.radiusMd, background: 'transparent', overflow: 'hidden' },
-      /** 卡片里那排 12px 紧凑分段：按钮宽度由内容决定，不再固定 28。 */
-      splitCompact: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 'auto', minWidth: 0, border: 0, background: 'transparent', color: T.pri, cursor: 'pointer', padding: '0 9px', gap: 4, fontSize: 12, lineHeight: '16px', whiteSpace: 'nowrap' },
-      /** 同上的「下载」格：多一层定位容器，用来贴底部 2px 进度线。 */
-      splitCompactCell: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 'auto', minWidth: 0, border: 0, background: 'transparent', color: T.pri, cursor: 'pointer', padding: '0 9px', gap: 4, fontSize: 12, lineHeight: '16px', whiteSpace: 'nowrap', position: 'relative', overflow: 'hidden' },
-      /** 预览空态 / 路径页里 32px 的分段主格（打开、下载）。 */
-      splitLarge: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 'auto', minWidth: 0, height: 32, border: 0, background: 'transparent', color: T.pri, cursor: 'pointer', padding: '0 14px', gap: 6, fontSize: 14, lineHeight: '20px', whiteSpace: 'nowrap' },
-      splitDivider: { width: 0.5, flex: 'none', background: 'var(--dsw-alias-border-l2, #e3e4e6)' },
-      splitCaret: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 20, border: 0, background: 'transparent', color: T.sec, cursor: 'pointer', padding: 0 },
-      /* 「显示文件位置」菜单：同 Menu 卡片规格，浮在卡片之上（卡片自身 overflow:hidden，所以要 fixed 定位） */
-      pathMenu: { position: 'fixed', zIndex: 220, boxSizing: 'border-box', padding: 4, minWidth: 188, borderRadius: T.radiusLg10, background: 'var(--dsw-menu-surface-fill, rgba(252,253,254,0.7))', backdropFilter: T.menuBlur, WebkitBackdropFilter: T.menuBlur, boxShadow: 'var(--dsw-elevation-prominent, 0.5px 0 0 0 var(--dsw-alias-border-l1, #ececec), 0 12px 32px rgba(0,0,0,0.16))' },
-      pathMenuItem: { display: 'flex', alignItems: 'center', gap: 6, width: '100%', minHeight: 34, padding: '6px 8px', border: 'none', borderRadius: T.radiusMd, background: 'transparent', color: T.pri, cursor: 'pointer', fontSize: 13, lineHeight: '20px', textAlign: 'left' },
-      /* 「视图选项」浮层里的分段标题、图标、勾选（与原生左栏那张菜单同规格） */
-      viewMenuHead: { padding: '6px 10px 4px', fontSize: 12, lineHeight: '18px', color: T.ter },
-      viewMenuIcon: { display: 'inline-flex', flex: 'none', width: 16, height: 16, alignItems: 'center', justifyContent: 'center', color: 'var(--dsw-alias-menu-icon, #6f7377)' },
-      viewMenuCheck: { display: 'inline-flex', flex: 'none', width: 16, height: 16, alignItems: 'center', justifyContent: 'center', color: 'var(--dsw-alias-label-primary, #1f2329)' },
-      viewMenuDivider: { height: 0.5, margin: '4px 6px', background: 'var(--dsw-alias-border-l2, #e3e4e6)' },
-      /* 卡片标题右侧的图标钮：28×28，hover/激活给浅底（原生 `.tool` 同款） */
-      ghostIconTool: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 'none', width: 28, height: 28, padding: 0, border: 0, borderRadius: 6, background: 'transparent', color: T.sec, cursor: 'pointer' },
-      ghostIconToolActive: { background: 'var(--dsw-alias-interactive-bg-hover, #f2f3f5)', color: T.pri },
-      /* 会话搜索输入框：就地占工具条一段 240px / 28px 的方框（搜索图标 + 输入 + 清除） */
-      sessionSearchField: { display: 'inline-flex', alignItems: 'center', gap: 6, flex: 'none', width: 240, height: 28, padding: '0 6px 0 8px', borderRadius: 8, border: '0.5px solid var(--dsw-alias-border-l2, #e3e4e6)', background: 'var(--dsw-alias-bg-base, #fff)' },
-      sessionSearchIcon: { display: 'inline-flex', flex: 'none', color: T.ter },
-      sessionSearchInput: { flex: 1, minWidth: 0, height: 26, padding: 0, border: 0, outline: 'none', background: 'transparent', color: T.pri, fontSize: 13, lineHeight: '20px', fontFamily: 'inherit' },
-      sessionSearchClear: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 'none', width: 20, height: 20, padding: 0, border: 0, borderRadius: 4, background: 'transparent', color: T.ter, cursor: 'pointer' },
-      /* 远程端主界面头部：返回胶囊 + 标题 + 副标题 */
-      peerPageHeader: { display: 'flex', flexDirection: 'column', gap: 10 },
-      peerBackPill: { display: 'inline-flex', alignItems: 'center', gap: 7, alignSelf: 'flex-start', height: 32, padding: '0 14px 0 11px', border: '0.5px solid var(--dsw-alias-border-l2, #e3e4e6)', borderRadius: 8, background: 'var(--dsw-alias-bg-base, #fff)', color: T.pri, fontSize: 13, fontWeight: 500, lineHeight: '20px', cursor: 'pointer', transition: 'background-color 120ms ease, border-color 120ms ease' },
-      peerTitle: { fontSize: 22, fontWeight: 600, lineHeight: '30px', margin: 0, color: T.pri },
-      /* 卡片图标按钮的深色 tooltip（原生 hover 提示同款） */
-      tooltipBox: { position: 'fixed', zIndex: 240, transform: 'translateX(-50%)', padding: '6px 10px', borderRadius: 6, background: 'rgba(28,28,30,0.92)', color: '#fff', fontSize: 12, lineHeight: '18px', whiteSpace: 'nowrap', pointerEvents: 'none' },
-      /* 路径信息正文：对端原路径 + 解析后的绝对路径，两块等宽文本 */
-      /** PDF 阅读器：工具条 + 连续滚动的页画布（pdfjs canvas 渲染）。 */
-      pdfWrap: { flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column', background: 'var(--dsw-alias-bg-base, #f6f7f8)' },
-      pdfBar: { flex: 'none', display: 'flex', alignItems: 'center', gap: 6, height: 38, padding: '0 12px', borderBottom: '1px solid var(--dsw-alias-border-l2, #e3e4e6)', background: 'var(--dsw-alias-bg-base, #fff)' },
-      pdfTool: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 24, height: 24, padding: '0 6px', border: 0, borderRadius: 6, background: 'transparent', color: T.sec, fontSize: 14, lineHeight: '24px', cursor: 'pointer' },
-      pdfToolLink: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 24, height: 24, padding: '0 6px', borderRadius: 6, color: T.sec, fontSize: 14, textDecoration: 'none' },
-      pdfPageNo: { fontSize: 12, color: T.sec, minWidth: 46, textAlign: 'center' },
-      pdfZoom: { fontSize: 12, color: T.sec, minWidth: 40, textAlign: 'center' },
-      pdfDivider: { width: 1, height: 16, background: 'var(--dsw-alias-border-l2, #e3e4e6)', margin: '0 4px' },
-      pdfScroll: { flex: '1 1 auto', minHeight: 0, overflow: 'auto' },
-      pdfPages: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: '16px 24px 32px' },
-      pdfCanvas: { display: 'block', background: '#fff', boxShadow: '0 1px 4px rgba(0,0,0,0.12)', borderRadius: 2 },
-      pdfError: { flex: '1 1 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, fontSize: 13, color: 'var(--dsw-alias-state-error-primary, #c0392b)' },
-      /** 不可预览空态：主体 `TextPreview` 的 `.empty`（列布局、16px 间距、居中、12% 底部留白）。 */
-      unsupported: { flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column', gap: 16, alignItems: 'center', justifyContent: 'center', padding: '0 24px 40px', color: 'var(--dsw-alias-label-secondary, #6b7280)', fontSize: 13, lineHeight: 1.6 },
-      unsupportedLine: { margin: 0 },
-      imgWrap: { flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column', background: 'var(--dsw-alias-bg-base, #f6f7f8)' },
-      imgScroll: { flex: '1 1 auto', minHeight: 0, overflow: 'auto', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 16 },
-      /** HTML：沙箱 iframe 铺满预览区（脚本可跑，但没有宿主同源权限）。 */
-      previewHtmlFrame: { width: '100%', height: '100%', minHeight: 420, border: 0, background: '#fff' },
-      pathInfoWrap: { flex: '1 1 auto', minHeight: 0, overflow: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 14, whiteSpace: 'normal', fontFamily: 'var(--dsw-font, sans-serif)' },
-      pathInfoHint: { fontSize: 12, lineHeight: '18px', color: T.ter },
-      /** PDF / 音视频：转发路由直供字节，避免大文件走 JSON。 */
-      previewMediaWrap: { flex: '1 1 auto', minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, background: 'var(--dsw-alias-bg-base, #fff)' },
-      previewVideo: { maxWidth: '100%', maxHeight: '100%', borderRadius: T.radiusMd, background: '#000' },
-      previewAudio: { width: '100%' },
-      pathInfoLabel: { fontSize: 11, lineHeight: '16px', fontWeight: 500, color: T.ter },
-      pathInfoValue: { marginTop: 6, padding: '8px 10px', borderRadius: T.radiusMd, border: '0.5px solid var(--dsw-alias-border-l1, #ececec)', background: 'var(--dsw-alias-card-fill, #f8f9fa)', fontFamily: 'var(--dsw-font-mono, ui-monospace, monospace)', fontSize: 12, lineHeight: '18px', wordBreak: 'break-all', userSelect: 'text' },
-      /* ── 右侧预览面板：真侧窗（占满内容区高度，与左侧会话并排）── */
-      pageRow: { display: 'flex', flex: 1, minHeight: 0, minWidth: 0 },
-      conversationPane: { display: 'flex', flexDirection: 'column', flex: '1 1 0', minWidth: 0, minHeight: 0 },
-      previewPane: {
-        display: 'flex', flexDirection: 'column', flex: '0 0 54%', minWidth: 380,
-        height: '100%', minHeight: 0,
-        borderLeft: '0.5px solid var(--dsw-alias-border-l3, #e3e4e6)',
-        background: 'var(--dsw-alias-bg-layer-1, #fff)',
-      },
-      previewPaneFull: { flex: '1 1 100%', width: '100%', borderLeft: 'none' },
-      /* 目录视图（原生侧栏文件列表）：一行一项，名称在左、大小在右，hover 有底色 */
-      dirList: { display: 'flex', flexDirection: 'column', padding: '6px 8px 16px' },
-      dirRow: { display: 'flex', alignItems: 'center', gap: 8, height: 30, padding: '0 8px', border: 'none', background: 'transparent', borderRadius: T.radiusSm8, color: T.pri, fontSize: 13, textAlign: 'left', cursor: 'pointer' },
-      dirIcon: { display: 'flex', alignItems: 'center', justifyContent: 'center', width: 16, height: 16, flex: 'none', color: 'var(--dsw-alias-text-secondary, #8a8f99)' },
-      dirName: { flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-      dirSize: { flex: 'none', color: 'var(--dsw-alias-text-tertiary, #a0a4ab)', fontSize: 12, fontVariantNumeric: 'tabular-nums' },
-      dirEmpty: { padding: '12px 8px', color: 'var(--dsw-alias-text-tertiary, #a0a4ab)', fontSize: 13 },
-      /* 页签条：原生 dockkit `.tabStrip` —— 28px 行 + 10px 上边距，`padding:10px 6px 0 10px`，gap 4 */
-      previewTabStrip: { display: 'flex', flex: '0 0 auto', alignItems: 'center', gap: 4, boxSizing: 'border-box', height: 38, padding: '10px 6px 0 10px' },
-      /* 激活页签：原生 `.tab` —— 28px 高、`0 10px`、radius 8、13/1.4、secondary 墨色、markdown-tag 底 */
-      previewTab: { position: 'relative', display: 'flex', flex: '0 1 auto', alignItems: 'center', gap: 5, minWidth: 80, maxWidth: 170, boxSizing: 'border-box', height: 28, padding: '0 10px', borderRadius: T.radiusSm8, background: 'var(--dsw-alias-markdown-tag, rgba(0,0,0,0.04))', color: T.pri, fontSize: 13, lineHeight: 1.4, whiteSpace: 'nowrap', overflow: 'hidden', cursor: 'pointer' },
-      /* 非激活页签的 hover 底色（原生 `.tab:hover`）；激活页签保持 markdown-tag */
-      previewTabHover: { background: 'var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.06))' },
-      previewTabName: { flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-      /* 关闭按钮出现时标题在它下面淡出（原生 `.tabTitle` 的 mask） */
-      previewTabNameYield: { maskImage: 'linear-gradient(to right, black calc(100% - 30px), transparent calc(100% - 14px))' },
-      /* 关闭：20×20、距页签右侧/顶部各 4px、14px 字形、三级墨色 */
-      previewTabClose: { position: 'absolute', top: 4, right: 4, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 20, height: 20, padding: 0, border: 0, borderRadius: T.radiusSm8, background: 'transparent', color: T.ter, cursor: 'pointer', lineHeight: 1 },
-      stripFill: { flex: '1 1 0', minWidth: 0 },
-      /* 页签条末端的面板控件：gap 8、28×28、15px 字形（原生 `.iconButton`） */
-      paneChrome: { display: 'flex', flex: 'none', alignItems: 'center', gap: 8, height: 28, marginLeft: 4 },
-      paneIconButton: { display: 'inline-flex', flex: 'none', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, padding: 6, boxSizing: 'border-box', color: T.sec, lineHeight: 1, background: 'transparent', border: 'none', borderRadius: T.radiusSm8, cursor: 'pointer' },
-      /* 路径行：原生 TextPreview `.header` —— 38px、`0 6px 0 16px`、gap 4、底边 0.5px l3 */
-      previewHeader: { display: 'flex', flex: '0 0 auto', gap: 4, alignItems: 'center', boxSizing: 'border-box', height: 38, padding: '0 6px 0 16px', borderBottom: '0.5px solid var(--dsw-alias-border-l3, #e3e4e6)' },
-      previewPath: { display: 'flex', flex: '1 1 auto', justifyContent: 'flex-start', minWidth: 0, overflow: 'hidden', marginRight: 12, fontSize: 12, lineHeight: '18px', whiteSpace: 'nowrap' },
-      /* 文字始终贴左：短路径不因弹性空隙被推到右边；超长时右侧省略。 */
-      previewPathText: { flex: '0 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', marginRight: 'auto' },
-      /* 文件夹分段按钮：24px 高、发丝描边（同卡片右侧同款） */
-      previewFolderSplit: { flex: 'none', display: 'inline-flex', alignItems: 'center', height: 24, boxSizing: 'border-box', border: '0.5px solid var(--dsw-alias-border-l2, #e7e7e7)', borderRadius: T.radiusMd, overflow: 'hidden' },
-      previewFolderMain: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 24, padding: 0, border: 0, background: 'transparent', color: T.sec, cursor: 'pointer' },
-      previewFolderDivider: { width: 0.5, height: 24, background: 'var(--dsw-alias-border-l2, #e7e7e7)' },
-      previewFolderCaret: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 18, height: 24, padding: 0, border: 0, background: 'transparent', color: T.sec, cursor: 'pointer' },
-      previewTool: { boxSizing: 'border-box', display: 'inline-flex', flex: 'none', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, padding: 6, color: T.sec, lineHeight: 1, background: 'transparent', border: 'none', borderRadius: T.radiusSm8, cursor: 'pointer' },
-      /* 文档加载态：原生 `LoadingIndicator.module.css .loading`（列向、12px 间距、24px 内边距、14/1.5） */
-      previewLoading: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', gap: 12, width: '100%', height: '100%', minHeight: 0, padding: 24, color: T.sec, fontFamily: 'var(--dsw-font, sans-serif)', fontSize: 14, lineHeight: 1.5, textAlign: 'center', whiteSpace: 'normal' },
-      previewSpinner: { flex: 'none', color: T.ter },
-      previewSpinnerMotion: { transformOrigin: 'center', animation: 'dsh-rp-spin 1.5s linear infinite' },
-      previewSpinnerArc: { animation: 'dsh-rp-dash 1.5s ease-in-out infinite' },
-      /* 内容行：正文 + 可选文件树 */
-      previewContentRow: { position: 'relative', display: 'flex', flex: '1 1 auto', minWidth: 0, minHeight: 0 },
-      previewContent: { position: 'relative', display: 'flex', flex: '1 1 auto', minWidth: 0, minHeight: 0, background: 'var(--dsw-alias-bg-layer-1, #fff)' },
-      /* ── 文件树：原生 `FileNavigator` push 态 —— 260px、左 0.5px l3、bg-base ── */
-      navigator: { position: 'relative', display: 'flex', flex: 'none', flexDirection: 'column', boxSizing: 'border-box', width: 260, height: '100%', minWidth: 0, minHeight: 0, background: 'var(--dsw-alias-bg-base, #fff)', borderLeft: '0.5px solid var(--dsw-alias-border-l3, #e3e4e6)', color: T.pri, fontSize: 13, lineHeight: 1.5 },
-      navSearchBar: { flex: '0 0 auto', boxSizing: 'border-box', height: 42, padding: '8px 8px 4px' },
-      navSearchField: { display: 'flex', gap: 2, alignItems: 'center', boxSizing: 'border-box', height: '100%', padding: '0 2px', background: 'var(--dsw-alias-bg-layer-1, #fff)', border: '0.5px solid var(--dsw-alias-border-l4, #e3e4e6)', borderRadius: T.radiusMd },
-      navSearchIcon: { display: 'inline-flex', flex: 'none', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, padding: 4, boxSizing: 'border-box', color: T.ter, lineHeight: 1 },
-      navSearchInput: { flex: '1 1 auto', minWidth: 0, padding: '0 4px', color: T.pri, font: 'inherit', background: 'transparent', border: 'none', outline: 'none' },
-      navSearchClear: { display: 'inline-flex', flex: 'none', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, padding: 4, boxSizing: 'border-box', border: 0, borderRadius: T.radiusSm8, background: 'transparent', color: T.ter, cursor: 'pointer', lineHeight: 1 },
-      navBody: { flex: '1 1 auto', minHeight: 0, marginRight: 2, padding: '8px 0 8px 8px', overflow: 'auto', scrollbarGutter: 'stable' },
-      navLevel: { margin: 0, padding: 0 },
-      navLevelNested: { margin: 0, paddingLeft: 18 },
-      navItem: { margin: 0, padding: 0 },
-      navRow: { display: 'flex', gap: 6, alignItems: 'center', width: '100%', minWidth: 0, boxSizing: 'border-box', padding: '5px 10px', border: 0, borderRadius: T.radiusMd, background: 'transparent', color: 'inherit', font: 'inherit', textAlign: 'left', cursor: 'pointer' },
-      navRowCurrent: { background: 'var(--dsw-alias-interactive-bg-active, rgba(0,0,0,0.06))' },
-      navRowHover: { background: 'var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.04))' },
-      navIcon: { display: 'inline-flex', flex: 'none', alignItems: 'center', justifyContent: 'center', color: T.ter },
-      navName: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-      navNote: { margin: 0, padding: '3px 10px', color: T.ter, fontSize: 12 },
-      /* ── 本轮改动卡片：原生 `ChangedFiles.module.css` 逐值 ── */
-      changedCard: { display: 'flex', flexDirection: 'column', minWidth: 0, marginTop: 4, overflow: 'hidden', border: '0.5px solid var(--dsw-alias-border-l2, #e3e4e6)', borderRadius: 'var(--dsw-radius-lg, 16px)', background: 'var(--dsw-alias-bg-layer-1, #fff)', color: T.pri },
-      changedHeader: { display: 'flex', alignItems: 'center', gap: 10, boxSizing: 'border-box', width: '100%', minWidth: 0, height: 60, margin: 0, padding: '8px 10px', border: 0, background: 'var(--dsw-alias-card-fill, #fafafa)', color: 'inherit', font: 'inherit', textAlign: 'left', cursor: 'pointer' },
-      changedTile: { display: 'grid', flex: 'none', placeItems: 'center', boxSizing: 'border-box', width: 40, height: 40, border: '0.5px solid var(--dsw-alias-border-l1, #ededed)', borderRadius: 10, background: 'var(--dsw-alias-card-tile-fill, #f2f3f5)' },
-      changedTitles: { display: 'flex', flex: 1, flexDirection: 'column', minWidth: 0 },
-      changedTitle: { overflow: 'hidden', fontSize: 13, fontWeight: 500, lineHeight: '20px', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-      changedStat: { display: 'inline-flex', fontSize: 10, lineHeight: '16px', color: T.ter },
-      changedPreviewHint: { display: 'none', fontSize: 10, lineHeight: '16px' },
-      changedList: { margin: 0, padding: 0, listStyle: 'none', borderTop: '0.5px solid var(--dsw-alias-border-l2, #e3e4e6)' },
-      changedRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, boxSizing: 'border-box', width: '100%', minWidth: 0, minHeight: 24, margin: 0, padding: '7px 18px 7px 14px', border: 0, background: 'transparent', color: T.ter, cursor: 'pointer', fontFamily: 'var(--ds-font-family-code, ui-monospace, monospace)', fontSize: 11, lineHeight: '18px', textAlign: 'left' },
-      changedPath: { minWidth: 0, overflow: 'hidden', fontFamily: 'var(--dsw-font-family, sans-serif)', fontSize: 12, textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-      changedToggle: { display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-start', gap: 4, boxSizing: 'border-box', width: '100%', margin: 0, padding: '10px 18px 10px 14px', border: 0, background: 'transparent', color: T.ter, cursor: 'pointer', font: 'inherit', fontSize: 12, lineHeight: '18px', textAlign: 'left' },
-      /* 深色 tooltip 的快捷键 keycap：原生 Tooltip 的 `ShortcutKeys` */
-      previewScroller: {
-        position: 'relative', flex: '1 1 auto', minHeight: 0, margin: 0, padding: 0, overflow: 'auto',
-        overflowAnchor: 'none',
-        color: T.pri,
-        fontSize: 13, fontFamily: 'var(--dsw-font-mono, ui-monospace, monospace)',
-        lineHeight: 1.6, whiteSpace: 'pre',
-      },
-      previewTextDoc: { boxSizing: 'border-box', minWidth: '100%', minHeight: '100%', padding: 8 },
-      previewLine: { padding: '0 10px' },
-      previewImg: { maxWidth: '100%', maxHeight: '100%', height: 'auto', objectFit: 'contain', borderRadius: 8 },
-      /* 图片读取中的覆盖层：盖住旧图，铺满内容区（原生 loading 态就是整块空白 + spinner） */
-      previewCsvBody: { display: 'flex', flexDirection: 'column', flex: '1 1 auto', minHeight: 0, minWidth: 0, whiteSpace: 'normal', fontFamily: 'var(--dsw-font, sans-serif)' },
-      csvBar: { display: 'flex', flex: '0 0 auto', alignItems: 'center', gap: 6, height: 28, padding: '0 8px', borderBottom: '0.5px solid var(--dsw-alias-border-l1, #ececec)', fontSize: 12, color: T.sec },
-      csvCellRef: { flex: 'none', minWidth: 34, padding: '0 6px', lineHeight: '20px', textAlign: 'center', borderRight: '0.5px solid var(--dsw-alias-border-l1, #ececec)' },
-      csvFx: { flex: 'none', fontStyle: 'italic', opacity: 0.7 },
-      csvGridWrap: { flex: '1 1 auto', minHeight: 0, overflow: 'auto' },
-      csvGrid: { display: 'grid', fontFamily: 'var(--dsw-font, sans-serif)', fontSize: 12, lineHeight: '20px', borderCollapse: 'collapse', minWidth: '100%' },
-      csvColHead: { position: 'sticky', top: 0, zIndex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', height: 22, background: 'var(--dsw-alias-bg-layer-2, #f3f4f6)', borderRight: '0.5px solid var(--dsw-alias-border-l1, #ececec)', borderBottom: '0.5px solid var(--dsw-alias-border-l1, #ececec)', fontSize: 11, color: T.ter },
-      csvRowHead: { position: 'sticky', left: 0, zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', height: 22, background: 'var(--dsw-alias-bg-layer-2, #f3f4f6)', borderRight: '0.5px solid var(--dsw-alias-border-l1, #ececec)', borderBottom: '0.5px solid var(--dsw-alias-border-l1, #ececec)', fontSize: 11, color: T.ter },
-      csvCell: { height: 22, padding: '0 6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'pre', borderRight: '0.5px solid var(--dsw-alias-border-l1, #ececec)', borderBottom: '0.5px solid var(--dsw-alias-border-l1, #ececec)' },
-      csvFooter: { display: 'flex', flex: '0 0 auto', alignItems: 'center', gap: 10, height: 26, padding: '0 10px', borderTop: '0.5px solid var(--dsw-alias-border-l1, #ececec)', fontSize: 11, color: T.ter },
-      csvFooterText: { fontSize: 11, color: T.ter },
-      /** Excel：底部 Sheet 页签（原生 fortune-sheet 的 tab 条位置在底边）。 */
-      excelTabs: { display: 'flex', flex: '0 0 auto', alignItems: 'center', gap: 4, height: 30, padding: '0 8px', borderTop: '0.5px solid var(--dsw-alias-border-l1, #ececec)', overflowX: 'auto' },
-      excelTab: { flex: 'none', height: 22, padding: '0 10px', border: 0, borderRadius: 6, background: 'transparent', color: T.sec, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' },
-      excelTabActive: { background: 'var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.06))', color: 'var(--dsw-alias-label-primary, #1f2329)', fontWeight: 500 },
-      /* 输入卡座位：原生 InputBar `.root` 的 `padding: 0 16px 4px`（侧留白 16、底 4） */
-      composerWrap: { padding: '0 16px 4px', display: 'flex', flexDirection: 'column', gap: 0 },
-      convApprovals: { display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 'calc(clamp(680px, 64%, 920px) + 32px)', margin: '0 auto', width: '100%' },
-      approvalCard: { border: '1px solid var(--dsw-alias-border-l2, #e5e5e5)', borderRadius: 12, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 },
-      /* 输入卡片：照 InputBar.module.css 的 .card —— panel 圆角、input-major 底色、soft 阴影、8px 顶距、12px 内间距 */
-      composerPill: {
-        position: 'relative',
-        maxWidth: 'calc(clamp(680px, 64%, 920px) + 32px)',
-        width: '100%',
-        margin: '0 auto',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 12,
-        paddingTop: 8,
-        borderRadius: 'var(--dsw-radius-panel, 12px)',
-        background: 'var(--dsw-specific-input-major, #fff)',
-        boxShadow: 'var(--dsw-elevation-soft, 0 1px 2px rgba(0,0,0,0.06))',
-      },
-      /* 草稿区：14px / 24px 行高、4px 8px 0 14px 内距、36px 最小高度 */
-      composerInput: {
-        boxSizing: 'border-box',
-        minHeight: 36,
-        padding: '4px 8px 0 14px',
-        border: 'none',
-        outline: 'none',
-        resize: 'none',
-        background: 'transparent',
-        fontFamily: 'var(--dsw-font-family, inherit)',
-        fontSize: 14,
-        lineHeight: '24px',
-        color: T.pri,
-        caretColor: 'var(--dsw-alias-state-business-primary, #1f6feb)',
-      },
-      /* 工具行：2px 8px 6px、12px 间距（attach / modes / trailing 同源间距） */
-      composerRow: { display: 'flex', alignItems: 'center', gap: 12, padding: '2px 8px 6px', minWidth: 0 },
-      /* 卡片顶边零高覆盖锚点：菜单以卡片整宽为基准（同 InputBar .overlayAnchor） */
-      overlayAnchor: { position: 'absolute', inset: '0 0 auto', height: 0, zIndex: 100 },
-      plusCircle: { display: 'grid', placeItems: 'center', flex: 'none', width: 28, height: 28, border: 'none', borderRadius: 999, cornerShape: 'round', background: 'var(--dsw-specific-selector, #f2f3f5)', color: T.pri, cursor: 'pointer', padding: 0 },
-      plusCircleOpen: { background: 'var(--dsw-alias-interactive-bg-hover, #ececec)' },
-      /* 输入触发菜单：照 MenuView.module.css .menu —— 贴输入卡片同宽、bottom+4、4px 内距、400px 上限、lg 圆角、prominent 阴影 */
-      plusMenu: { position: 'absolute', left: 0, right: 0, bottom: 'calc(100% + 4px)', zIndex: 100, boxSizing: 'border-box', padding: 4, maxHeight: 400, overflowY: 'auto', borderRadius: T.radiusLg10, background: 'var(--dsw-menu-surface-fill, rgba(255,255,255,0.72))', backdropFilter: T.menuBlur, WebkitBackdropFilter: T.menuBlur, boxShadow: T.elevationProminent },
-      /* 分组标题：.sectionTitle —— 23px 最小高、5px 8px 2px、11/16 中等、第三级文字色 */
-      plusSection: { flex: 'none', minHeight: 23, padding: '5px 8px 2px', color: T.ter, fontSize: 11, fontWeight: 500, lineHeight: '16px' },
-      /* 选项行：.item —— 34px 最小高、6px 8px、6px 间距、13/20 */
-      plusRow: { display: 'flex', alignItems: 'center', gap: 6, width: '100%', minHeight: 34, padding: '6px 8px', border: 'none', borderRadius: T.radiusMd, background: 'transparent', color: T.pri, cursor: 'pointer', fontSize: 13, lineHeight: '20px', textAlign: 'left' },
-      plusLabel: { flex: 'none', maxWidth: '40%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-      plusEn: { flex: 'none', maxWidth: '20%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: T.ter, fontSize: 12, lineHeight: '18px' },
-      plusHint: { flex: 1, minWidth: 0, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', textAlign: 'right', color: T.ter, fontSize: 12, lineHeight: '18px' },
-      /* 待发附件行：原生 `ComposerAttachments .rail` —— 2px 10px 顶距、10px 间距、横向滚动
-         （卡片 flex gap 12 会顺手把它和草稿拉开，往上回 6px）。 */
-      attachRail: { minWidth: 0, display: 'flex', alignItems: 'stretch', gap: 10, padding: '2px 10px 0', marginBottom: -6, overflowX: 'auto', overflowY: 'hidden', scrollbarWidth: 'none' },
-      /* 图片草稿：原生 `.imageItem` 64×64（缩略图 64 圆角 xl、右上 18px ✕、底部 2px 进度） */
-      attachImageItem: { position: 'relative', flex: 'none', width: 64, height: 64 },
-      attachThumb: { boxSizing: 'border-box', width: 64, height: 64, padding: 0, overflow: 'hidden', border: '0.5px solid var(--dsw-alias-border-l2-darkmode-thin, #ececec)', borderRadius: 'var(--dsw-radius-xl, 16px)', background: 'var(--dsw-alias-interactive-bg-hover, #f5f5f7)', cursor: 'zoom-in' },
-      attachThumbImg: { display: 'block', width: '100%', height: '100%', objectFit: 'cover' },
-      /* 失败图整体压暗（原生 `.thumbnailFailed img` opacity .4） */
-      attachThumbImgDim: { opacity: 0.4 },
-      attachThumbFailed: { cursor: 'pointer', borderColor: 'var(--dsw-alias-state-error-primary, #e5484d)' },
-      /* 失败图标盖在缩略图正中（原生 `.failureGlyph` inset 0 + place-items center） */
-      attachFailureGlyph: { position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', color: 'var(--dsw-alias-state-error-primary, #e5484d)', pointerEvents: 'none' },
-      /* 缩略图的 ✕：18px、内缩 4px、默认透明，悬停整块才浮出来（原生 `.remove`） */
-      attachRemove: { position: 'absolute', top: 4, right: 4, zIndex: 1, display: 'grid', placeItems: 'center', width: 18, height: 18, padding: 0, border: 'none', borderRadius: '50%', cornerShape: 'round', background: 'var(--dsw-alias-button-contrast-fill, rgba(0,0,0,0.55))', color: 'var(--dsw-alias-label-primary-inverted, #fff)', opacity: 0, cursor: 'pointer', transition: 'opacity 0.2s ease-in-out' },
-      attachRemoveShown: { opacity: 1 },
-      attachRemoveFailed: { opacity: 1, background: 'var(--dsw-alias-state-error-primary, #e5484d)', color: 'var(--dsw-alias-label-on-color, #fff)' },
-      /* 非图片草稿：原生 `ReferenceChip` 的蓝字 chip —— 14px 文件图标 + ≤240px 省略号名字、
-         4px 圆角、透明底，悬停才铺一层浅蓝；失败态转红加删除线，点一下重传。 */
-      attachChipRow: { display: 'flex', flexWrap: 'wrap', gap: 6, padding: '2px 14px 0', marginBottom: -6 },
-      attachChip: { display: 'inline-flex', alignItems: 'center', gap: 3, maxWidth: 240, minHeight: 24, padding: '0 4px', border: 'none', borderRadius: 'var(--dsw-radius-sm, 4px)', background: 'transparent', color: 'var(--dsw-alias-state-business-primary, #3964FE)', fontSize: 14, lineHeight: '22px', userSelect: 'none', transition: 'background 0.15s ease-in-out' },
-      attachChipHover: { background: 'var(--dsw-alias-state-business-tertiary, rgba(57,100,254,0.08))' },
-      attachChipInvalid: { color: 'var(--dsw-alias-state-error-primary, #e5484d)', textDecoration: 'line-through', opacity: 0.7, cursor: 'pointer' },
-      attachChipIcon: { display: 'inline-flex', flex: 'none', alignItems: 'center' },
-      attachChipLabel: { overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' },
-      attachChipSpinner: { display: 'inline-flex', flex: 'none', alignItems: 'center', marginLeft: 2, opacity: 0.6 },
-      attachChipRemove: { flex: 'none', display: 'inline-grid', placeItems: 'center', width: 14, height: 14, marginLeft: 2, padding: 0, border: 'none', borderRadius: '50%', cornerShape: 'round', background: 'transparent', color: 'inherit', cursor: 'pointer' },
-      /* 进度条：缩略图内距 8/6（原生 `ComposerAttachments .progressTrack`） */
-      attachThumbProgress: { position: 'absolute', left: 8, right: 8, bottom: 6, height: 2, overflow: 'hidden', borderRadius: 1, background: 'var(--dsw-specific-file-upload-track, #ececec)', pointerEvents: 'none' },
-      attachProgressBar: { display: 'block', width: '35%', height: '100%', borderRadius: 'inherit', background: 'var(--dsw-alias-brand-primary, #3964FE)', animation: 'dsh-rp-upload 1.2s ease-in-out infinite alternate' },
-      commandToken: { position: 'absolute', left: 0, top: 0, fontSize: 14, fontWeight: 500, color: 'var(--dsw-alias-state-business-primary, #3964FE)', pointerEvents: 'none', lineHeight: '24px', paddingTop: 4, paddingLeft: 14 },
-      commandRow: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, opacity: 0.8 },
-      commandCaret: { opacity: 0.45, fontFamily: 'ui-monospace, Menlo, monospace' },
-      commandName: { fontWeight: 600, opacity: 0.7 },
-      commandDot: { opacity: 0.35 },
-      commandText: { opacity: 0.65 },
-      commandError: { color: '#c0392b' },
-      darkButton: { minWidth: 72, height: 32, padding: '0 12px', borderRadius: 'var(--dsw-radius-sm, 6px)', border: 'none', background: 'var(--dsw-alias-button-primary-fill, #1f2328)', color: 'var(--dsw-alias-label-on-color, #fff)', cursor: 'pointer', fontSize: 13 },
-      sendCircle: { display: 'grid', placeItems: 'center', flex: 'none', width: 34, height: 34, border: 'none', borderRadius: 999, cornerShape: 'round', background: 'var(--dsw-alias-button-info-fill, #3964FE)', color: 'var(--dsw-alias-label-on-color, #fff)', fontSize: 16, cursor: 'pointer', transform: 'translateY(-2px)' },
-      modelButton: { display: 'flex', alignItems: 'center', gap: 4, height: 28, padding: '0 4px 0 8px', border: 'none', borderRadius: 'var(--dsw-radius-sm, 6px)', background: 'transparent', color: T.sec, cursor: 'pointer', fontSize: 13, lineHeight: '20px', fontWeight: 400, whiteSpace: 'nowrap' },
-      modelValue: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-      modelEffort: { flexShrink: 1000, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--dsw-alias-label-caption, #81858C)' },
-      /* 权限 chip：PermissionSelect .trigger —— 28px、13/20 中等、右侧 4px、图标 14 */
-      permissionButton: { display: 'flex', alignItems: 'center', gap: 4, height: 28, maxWidth: 220, padding: '0 4px 0 8px', border: 'none', borderRadius: 'var(--dsw-radius-sm, 6px)', background: 'transparent', color: T.sec, cursor: 'pointer', fontSize: 13, lineHeight: '20px', fontWeight: 500, whiteSpace: 'nowrap' },
-      /* 权限菜单：Menu.module.css .list + .item */
-      permissionMenu: { position: 'absolute', left: 0, bottom: 'calc(100% + 4px)', zIndex: 100, boxSizing: 'border-box', padding: 4, minWidth: 144, maxWidth: 260, borderRadius: T.radiusLg10, background: 'var(--dsw-menu-surface-fill, rgba(255,255,255,0.72))', backdropFilter: T.menuBlur, WebkitBackdropFilter: T.menuBlur, boxShadow: T.elevationProminent },
-      permissionRow: { display: 'flex', alignItems: 'center', gap: 6, width: '100%', minHeight: 34, padding: '6px 8px', border: 'none', borderRadius: T.radiusMd, background: 'transparent', color: T.pri, cursor: 'pointer', fontSize: 13, lineHeight: '20px', textAlign: 'left' },
-      permissionCheck: { flex: 'none', marginLeft: 'auto', display: 'inline-flex', color: T.pri, fontSize: 14, lineHeight: 1 },
-      /* 风险确认弹窗：Modal.module.css .dialog + RiskConfirmation .confirmation(440px) */
-      permDialogOverlay: { position: 'fixed', inset: 0, background: 'var(--dsw-alias-bg-mask-1, rgba(0,0,0,0.3))', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' },
-      permDialog: { boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 20, width: 'min(440px, 100%)', maxHeight: 'calc(100dvh - 48px)', overflow: 'hidden', borderRadius: 'var(--dsw-radius-panel, 12px)', background: 'var(--dsw-alias-bg-layer-2, #fff)', boxShadow: 'var(--dsw-elevation-prominent, 0 18px 48px rgba(0,0,0,0.22))', padding: '0 0 24px' },
-      permDialogHead: { display: 'flex', alignItems: 'flex-start', gap: 8, padding: '22px 14px 12px 24px', fontSize: 16, lineHeight: '24px', fontWeight: 500, color: T.pri },
-      /* Modal .content：标题与正文同属一列，内部不再叠加 dialog 的 20px gap */
-      permDialogContent: { display: 'flex', flexDirection: 'column', width: '100%' },
-      permWarn: { flex: 'none', marginTop: 3, color: 'var(--dsw-alias-state-warn-primary, #e08c1f)', display: 'inline-flex' },
-      /* Modal .body：padding 0 24，warning 语气下 margin-top 0（与标题同属 .content，中间不加 gap） */
-      permDialogBody: { display: 'flex', flexDirection: 'column', minWidth: 0, margin: 0, padding: '0 24px', fontSize: 14, lineHeight: '22px', color: T.sec },
-      riskRow: { display: 'flex', alignItems: 'flex-start', gap: 6, marginTop: 16, border: 'none', background: 'transparent', color: T.sec, cursor: 'pointer', padding: 0, fontSize: 14, fontWeight: 400, lineHeight: '20px', textAlign: 'left' },
-      permDialogFooter: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, padding: '0 24px' },
-      /* Button：md 36px、radius-md、14/22、padding 0 14；outline 用内发光发丝边；primary 禁用态用整体 opacity 0.4 */
-      permCancel: { boxSizing: 'border-box', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 72, height: 36, padding: '0 14px', borderRadius: T.radiusMd, border: '0.5px solid transparent', background: 'transparent', boxShadow: 'inset 0 0 0 var(--dsh-hairline-width, 0.5px) var(--dsw-alias-border-l3, #d0d0d0)', color: T.pri, cursor: 'pointer', fontSize: 14, lineHeight: '22px' },
-      permConfirm: { boxSizing: 'border-box', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 136, height: 36, padding: '0 14px', borderRadius: T.radiusMd, border: 'none', background: 'var(--dsw-alias-button-primary-fill, #1f2328)', color: 'var(--dsw-alias-label-primary-foreground, #fff)', cursor: 'pointer', fontSize: 14, lineHeight: '22px' },
-      permConfirmDisabled: { opacity: 0.4, cursor: 'not-allowed' },
-      /* 模型菜单：ModelSelect.module.css .menu + .settingsMenu —— fit-content、240~420、4px 内距、prominent 阴影 */
-      modelMenu: { position: 'absolute', right: 0, bottom: 'calc(100% + 8px)', zIndex: 100, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', width: 'fit-content', minWidth: 240, maxWidth: 420, maxHeight: 360, overflowY: 'auto', padding: 4, borderRadius: T.radiusLg10, background: 'var(--dsw-menu-surface-fill, rgba(255,255,255,0.72))', backdropFilter: T.menuBlur, WebkitBackdropFilter: T.menuBlur, boxShadow: T.elevationProminent, color: T.pri },
-      /* 根行：.cell —— 34px、0 8px、13/20 */
-      modelCell: { boxSizing: 'border-box', display: 'flex', alignItems: 'center', gap: 6, width: 'auto', minWidth: '100%', height: 34, padding: '0 8px', border: 'none', borderRadius: T.radiusMd, background: 'transparent', color: T.pri, fontSize: 13, lineHeight: '20px', textAlign: 'left', cursor: 'pointer' },
-      modelCellLabel: { flex: '0 0 auto', whiteSpace: 'nowrap' },
-      modelCellValue: { flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'right', color: T.ter },
-      /* provider 分组标题：MenuGroup .heading */
-      modelGroupHeading: { padding: '4px 7px 2px', fontSize: 11, lineHeight: '16px', fontWeight: 500, color: T.ter },
-      /* 选项行：.option —— 34px、5px 7px、13/18，选中只在右侧打勾 */
-      modelOption: { boxSizing: 'border-box', display: 'flex', alignItems: 'center', gap: 6, width: 'auto', minWidth: '100%', minHeight: 34, padding: '5px 7px', border: 'none', borderRadius: T.radiusMd, background: 'transparent', color: 'inherit', fontSize: 13, lineHeight: '18px', textAlign: 'left', cursor: 'pointer' },
-      modelOptionName: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, lineHeight: '18px' },
-      modelCheck: { display: 'grid', placeItems: 'center', flex: '0 0 14px', color: T.pri, fontSize: 14, lineHeight: 1 },
-      bulletMark: { opacity: 0.6, width: 16, flex: 'none', textAlign: 'left' },
-      bulletText: { flex: 1, minWidth: 0 },
-      paragraph: { marginBottom: 8 },
-      codeBlock: { background: 'var(--dsh-surface-weak, #f6f7f9)', borderRadius: 10, padding: '10px 12px', overflowX: 'auto', fontSize: 12.5, lineHeight: 1.6, fontFamily: 'ui-monospace, Menlo, monospace', margin: '4px 0 8px' },
-      /* 统计行：原生 InputBar `.dock` —— 居中、gap 12、22px 最小高、顶部 4px */
-      statusLine: { width: '100%', margin: '0 auto', paddingTop: 4, minHeight: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, flexWrap: 'wrap' },
-      /* 编排统计药丸：StatsPills `.pill` —— 1px 8px、sm 圆角、12px、6px 图标间距 */
-      statusPill: { boxSizing: 'border-box', display: 'inline-flex', alignItems: 'center', gap: 6, maxWidth: '100%', padding: '1px 8px', border: 'none', borderRadius: T.radiusSm8, background: 'transparent', color: T.ter, font: 'inherit', fontSize: 12, lineHeight: '20px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', cursor: 'pointer' },
-      statusPillOpen: { background: 'var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.05))', color: 'var(--dsw-alias-label-secondary, #5f6368)' },
-      /* 上下文浮层：ContextMeter `.panel` —— 264px 宽、12px 内边距、12/20 */
-      contextPanel: { position: 'fixed', zIndex: 1100, boxSizing: 'border-box', width: 264, padding: 12, border: 0, borderRadius: 'var(--dsw-radius-lg, 16px)', background: 'var(--dsw-specific-menu, rgba(255,255,255,0.9))', backdropFilter: T.menuBlur, WebkitBackdropFilter: T.menuBlur, boxShadow: T.elevationProminent, color: 'var(--dsw-alias-label-secondary, #5f6368)', fontSize: 12, lineHeight: '20px', cursor: 'default', maxHeight: 'calc(100vh - 24px)', overflowY: 'auto' },
-      contextHeader: { display: 'flex', alignItems: 'center', gap: 6 },
-      contextHeadline: { color: T.ter },
-      contextPercent: { color: T.pri, fontWeight: 500, fontVariantNumeric: 'tabular-nums' },
-      contextFigures: { marginLeft: 'auto', color: T.pri, fontWeight: 500, fontVariantNumeric: 'tabular-nums' },
-      contextBar: { display: 'flex', gap: 1, margin: '10px 0 12px', height: 4, borderRadius: 999, cornerShape: 'round', background: 'var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.05))', overflow: 'hidden' },
-      contextRows: { margin: '6px 0 0' },
-      contextRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '2px 0' },
-      contextRowLabel: { display: 'inline-flex', alignItems: 'center', color: 'var(--dsw-alias-label-secondary, #5f6368)' },
-      contextRowValue: { fontVariantNumeric: 'tabular-nums', color: T.pri },
-      contextSwatch: { display: 'inline-block', marginRight: 6, width: 8, height: 8, borderRadius: 2, flex: 'none' },
-    }
 
     /** 面板组件：所有数据经本机 Host 的 /remote-peers 通道取得。 */
     function RemotePeersPanel(injected) {
@@ -2093,38 +1332,8 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         }
       }, [call])
 
-      /** provider/model 的人类可读名字。 */
-      function modelNameOf(nextCatalog, selection) {
-        if (selection === undefined || selection === null) return ''
-        for (const group of nextCatalog?.groups ?? []) {
-          if (group.id !== selection.provider && selection.provider !== '') continue
-          for (const model of group.models ?? []) {
-            if (model.id === selection.model) return model.name
-          }
-        }
-        return selection.model
-      }
 
-      /** 权限预设（沙箱模式）的显示名，与宿主文案一致。 */
-      function permissionLabel(value) {
-        const known = {
-          'read-only': '仅可查看',
-          'workspace-write': '工作区内修改',
-          'danger-full-access': '完全权限',
-          auto: '自动审查',
-        }
-        if (typeof value !== 'string' || value === '') return null
-        return known[value] ?? value
-      }
 
-      /** 会话当前的权限预设：取最后一次 `permission/preset` 事件。 */
-      function permissionOf(events) {
-        for (let index = events.length - 1; index >= 0; index -= 1) {
-          const preset = events[index]?.data?.preset
-          if (events[index]?.type === 'permission/preset' && typeof preset === 'string') return preset
-        }
-        return null
-      }
 
       /** 取对端可选权限预设。 */
       const loadPermissionCatalog = useCallback(async (peerId) => {
@@ -2161,22 +1370,6 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         }
       }, [call])
 
-      /** 预设 id → 显示名。内置预设宿主不给 name，用宿主自带的中文名。 */
-      function presetNameOf(id, roster) {
-        const builtin = {
-          standard: '标准模式',
-          ptc: 'PTC 模式',
-          minimal: '极简模式',
-          cordis: '创造模式',
-        }
-        if (typeof id !== 'string' || id === '') {
-          const fallback = (roster ?? []).find((preset) => preset.isDefault === true)
-          return fallback === undefined ? null : presetNameOf(fallback.id, roster)
-        }
-        const row = (roster ?? []).find((preset) => preset.id === id)
-        if (typeof row?.name === 'string' && row.name !== '') return row.name
-        return builtin[id] ?? id
-      }
 
       /** 当前会话的模式名，取 session/list 的 agentPreset 投影。 */
       function presetOfSession(sessionId, roster) {
@@ -2185,99 +1378,8 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         return presetNameOf(typeof id === 'string' ? id : null, roster)
       }
 
-      /** 会话当前模型选择：优先取最近一次 request/header 的 config，其次消息 source。 */
-      function selectionOf(events, nextCatalog) {
-        for (let index = events.length - 1; index >= 0; index -= 1) {
-          const config = events[index]?.data?.header?.config
-          if (config !== undefined && typeof config.model === 'string') {
-            return {
-              provider: typeof config.provider === 'string' ? config.provider : '',
-              model: config.model,
-              reasoningEffort: typeof config.reasoningEffort === 'string' ? config.reasoningEffort : undefined,
-            }
-          }
-          const source = events[index]?.data?.message?.source
-          if (source !== undefined && typeof source.model === 'string') {
-            return {
-              provider: typeof source.provider === 'string' ? source.provider : '',
-              model: source.model,
-              reasoningEffort: typeof events[index]?.data?.request?.config?.reasoningEffort === 'string'
-                ? events[index].data.request.config.reasoningEffort
-                : undefined,
-            }
-          }
-        }
-        const fallback = nextCatalog?.default
-        return fallback === undefined ? null
-          : { provider: fallback.provider, model: fallback.model, reasoningEffort: fallback.reasoningEffort }
-      }
 
-      /** 会话指标：轮/步、tok/s、累计 token、缓存命中率、上下文占用。 */
-      /** 折叠会话事件里的统计指标：轮/步、速度、token 合计、缓存命中率、上下文占用。 */
-      function metricsOf(events) {
-        let turns = 0
-        let steps = 0
-        /** 三个互斥的 prompt 侧计费桶：未命中输入 / 缓存读 / 缓存写（同 `tokenUsage`）。 */
-        let uncachedInput = 0
-        let outputTokens = 0
-        let cacheRead = 0
-        let contextWindow = 0
-        /** 最近一次 usage 样本的 prompt 侧规模（原生 `pressureTokens`），不是累计值。 */
-        let pressureTokens = 0
-        let lastStepStart = 0
-        let lastStepEnd = 0
-        let lastStepOutput = 0
-        for (const event of events) {
-          const data = event?.data ?? {}
-          if (event?.type === 'turn/start' && typeof data.turn === 'number') {
-            turns = Math.max(turns, data.turn)
-          }
-          if (event?.type === 'step/start') {
-            steps += 1
-            lastStepStart = typeof event.time === 'number' ? event.time : 0
-            lastStepOutput = 0
-          }
-          if (event?.type === 'step/end') lastStepEnd = typeof event.time === 'number' ? event.time : 0
-          if (event?.type === 'assistant/message' || event?.type === 'assistant/attempt') {
-            const usage = data.usage ?? {}
-            const measured = data.usage !== undefined
-            if (measured) {
-              uncachedInput += Number(usage.inputTokens ?? 0)
-              outputTokens += Number(usage.outputTokens ?? 0)
-              cacheRead += Number(usage.cacheReadTokens ?? 0)
-              const sample = Number(usage.inputTokens ?? 0)
-                + Number(usage.cacheReadTokens ?? 0)
-                + Number(usage.cacheWriteTokens ?? 0)
-              if (sample > 0) pressureTokens = sample
-            }
-            if (typeof data.usage?.outputTokens === 'number') lastStepOutput += data.usage.outputTokens
-          }
-          if (event?.type === 'request/context' && typeof data.contextWindow === 'number') {
-            contextWindow = data.contextWindow
-          }
-        }
-        const elapsed = lastStepEnd > lastStepStart ? (lastStepEnd - lastStepStart) / 1000 : 0
-        const tokensPerSecond = elapsed > 0 ? Math.round(lastStepOutput / elapsed) : 0
-        const cacheWrite = 0
-        const billedInput = uncachedInput + cacheRead + cacheWrite
-        /** 缓存命中分子/分母：原生 `billedInputTokens` 的三个计费桶。 */
-        const cacheHitRate = { value: cacheRead, base: billedInput }
-        /** 原生 `contextOccupancy`：最近一次样本的 prompt 规模 / 路由上下文容量。 */
-        const contextUsed = contextWindow > 0 && pressureTokens > 0
-          ? Math.min(100, Math.round((pressureTokens / contextWindow) * 100))
-          : 0
-        const totalTokens = billedInput + outputTokens
-        return { turns, steps, tokensPerSecond, totalTokens, cacheHitRate, contextUsed }
-      }
 
-      /** 最近一次请求的推理等级。 */
-      function effortOf(events) {
-        for (let index = events.length - 1; index >= 0; index -= 1) {
-          const effort = events[index]?.data?.header?.config?.reasoningEffort
-          if (typeof effort === 'string' && effort !== '') return effort
-        }
-        return undefined
-      }
 
       /** 切换远端会话的模型/推理等级：写的是对端真实会话选择，对端界面同样会变。 */
       const changeModel = useCallback(async (peerId, sessionId, group, model, effort) => {
@@ -3791,11 +2893,6 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         return typeof title === 'string' && title !== '' ? title : '未命名'
       }
 
-      /** 原生版式的会话页：标题栏 + 对话 tab + 消息列 + 药丸输入框。 */
-      /** 预览卡里的单行化文本：压掉换行与多余空白。 */
-      function oneLine(text) {
-        return String(text ?? '').replace(/\s+/gu, ' ').trim().slice(0, 600)
-      }
 
       /** 轮次导航条目 —— 原生 `mergeTurnRailItems`：先取 `turnOutline` 投影（宿主折好了 每条会话的全部轮次：turn / seq / 提问 / 回答预览，不需要读全量日志），再用当前窗口 已加载的轮覆盖一次（拿到可跳转的定位）。未加载的轮沿用投影里的 seq。 */
       function railItems() {
@@ -3980,6 +3077,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         return workspaces.find((item) => Array.isArray(item.sessionIds) && item.sessionIds.includes(sessionId)) ?? null
       }
 
+      /** 原生版式的会话页：标题栏 + 对话 tab + 消息列 + 药丸输入框。 */
       function renderConversation() {
         const peer = peers.find((item) => item.id === activePeer)
         const workspaceCrumb = workspaceOfSession(openSession)
@@ -4151,10 +3249,6 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         )
       }
 
-      /** 精确 token 数：带千分位（原生 `formatExactTokens` 用 locale 分组符）。 */
-      function formatExactTokens(value) {
-        return String(Math.max(0, Math.round(value))).replace(/\B(?=(\d{3})+(?!\d))/gu, ',')
-      }
 
       /**
        * 卡片右侧那个 ⌄：点开「显示文件位置」菜单（卡片与预览空态共用同一个钮）。
@@ -4433,60 +3527,11 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         return h('div', { style: styles.toastWrap, role: 'status' }, text)
       }
 
-      /** 复制图标：ui-primitives `copy-outline`（16 视图框、regular 线重）。 */
-      function copyGlyph(size = 14) {
-        return h('svg', { width: size, height: size, viewBox: '0 0 16 16', fill: 'none', strokeWidth: 1 },
-          h('rect', { x: 1.52075, y: 4.07373, width: 10.3932, height: 10.3932, rx: 2, stroke: 'currentColor' }),
-          h('path', {
-            d: 'M11.9792 1.53296C13.36 1.53296 14.4792 2.65225 14.4792 4.03296V9.42847C14.4792 10.3756 13.9521 11.1987 13.1755 11.6228V10.3298C13.3652 10.0787 13.4792 9.7674 13.4792 9.42847V4.03296C13.4792 3.20453 12.8077 2.53296 11.9792 2.53296H6.58374C6.27966 2.53301 5.99684 2.6235 5.7605 2.77905H4.42358C4.85652 2.03463 5.66056 1.53304 6.58374 1.53296H11.9792Z',
-            fill: 'currentColor',
-          }),
-        )
-      }
 
-      /** 复制成功后的勾选图标（check-outline）。 */
-      function checkGlyph(size = 15) {
-        return h('svg', { width: size, height: size, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round' },
-          h('path', { d: 'M3 8.6l3.2 3.2 6.6-8' }))
-      }
 
-      /** 用量（database-outline，15px）。 */
-      function databaseGlyph(size = 15) {
-        return h('svg', { width: size, height: size, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.2 },
-          h('ellipse', { cx: 8, cy: 3.6, rx: 5, ry: 1.9 }),
-          h('path', { d: 'M3 3.6v8.8c0 1 2.2 1.9 5 1.9s5-.9 5-1.9V3.6' }),
-          h('path', { d: 'M3 8c0 1 2.2 1.9 5 1.9s5-.9 5-1.9' }))
-      }
 
-      /** 速度表盘（gauge-outline）。 */
-      function gaugeGlyph(size = 14) {
-        return h('svg', { width: size, height: size, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.2, strokeLinecap: 'round' },
-          h('path', { d: 'M2.6 12.2a6 6 0 1 1 10.8 0' }),
-          h('path', { d: 'M8 8.4l2.8-2.4' }),
-          h('circle', { cx: 8, cy: 8.6, r: 0.9 }))
-      }
 
-      /** 上下文占用环：26% 这类读数，按百分比画弧。 */
-      function contextGlyph(percent, size = 14) {
-        const value = Math.max(0, Math.min(100, percent))
-        const radius = 5.8
-        const circumference = 2 * Math.PI * radius
-        return h('svg', { width: size, height: size, viewBox: '0 0 16 16', fill: 'none', strokeWidth: 2, strokeLinecap: 'round' },
-          h('circle', { cx: 8, cy: 8, r: radius, stroke: 'var(--dsw-alias-border-l3, #e3e4e6)' }),
-          h('circle', {
-            cx: 8, cy: 8, r: radius, stroke: T.ter,
-            strokeDasharray: `${(circumference * value) / 100} ${circumference}`,
-            transform: 'rotate(-90 8 8)',
-          }))
-      }
 
-      function downloadGlyph() {
-        return h('svg', { width: 14, height: 14, viewBox: '0 0 16 16', fill: 'none', strokeWidth: 1 },
-          h('path', { d: 'M8 1.95317V10.0469', stroke: 'currentColor' }),
-          h('path', { d: 'M4.25 6.29688L8 10.0469L11.75 6.29688', stroke: 'currentColor' }),
-          h('path', { d: 'M1.5 10.0469V13.158C1.5 13.3937 1.60536 13.6198 1.79289 13.7865C1.98043 13.9532 2.23478 14.0469 2.5 14.0469H13.5C13.7652 14.0469 14.0196 13.9532 14.2071 13.7865C14.3946 13.6198 14.5 13.3937 14.5 13.158V10.0469', stroke: 'currentColor' }),
-        )
-      }
 
       /** 一条消息：用户靠右气泡，助手是通栏正文（与原生一致）。 */
       function renderMessage(message, index, isTurnTail = true) {
@@ -4548,76 +3593,9 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         )
       }
 
-      /** 工具名 → 第二层每行前面的标签（原生 `message.stepProcess.done.*` 的单项写法）。 */
-      function processToolLabelOf(name) {
-        const labels = {
-          pwsh: '运行命令', shell: '运行命令', bash: '运行命令', exec: '运行命令',
-          read: '读取文件', Read: '读取文件',
-          write: '写入文件',
-          edit: '编辑文件', edit_file: '编辑文件', str_replace_editor: '编辑文件',
-          web_search: '搜索网页', web_fetch: '访问网页',
-          run_code: '运行代码',
-          ask_user_question: '提问', question: '提问',
-          update_plan: '更新计划', plan_write: '更新计划',
-          subagent: '协调子智能体', send_message: '发消息', list_agents: '列出智能体',
-          read_image: '读取图片', ReadImage: '读取图片',
-        }
-        return labels[name] ?? '调用工具'
-      }
 
-      /** 工具名 → 活动分类（原生 `ProcessActivitySummary` 的 kind）。 */
-      function processToolKind(name) {
-        const known = {
-          pwsh: 'commands', shell: 'commands', bash: 'commands', exec: 'commands',
-          read: 'read', Read: 'read',
-          write: 'write',
-          edit: 'edit', edit_file: 'edit', str_replace_editor: 'edit',
-          web_search: 'webSearch', web_fetch: 'webFetch',
-          run_code: 'code',
-          ask_user_question: 'questions', question: 'questions',
-          update_plan: 'plan', plan_write: 'plan',
-          subagent: 'subagents', send_message: 'subagents', list_agents: 'subagents',
-          read_image: 'readImage', ReadImage: 'readImage',
-        }
-        return known[name] ?? 'tools'
-      }
 
-      /** 分类 → 第一层分组标题（原生 `message.stepProcess.done.*` 的完整几项）。 */
-      function processKindLabelOf(cat) {
-        const labels = {
-          read: '已读取文件',
-          readImage: '已读取图片',
-          write: '已写入文件',
-          search: '已搜索代码',
-          edit: '修改了文件',
-          commands: '执行了命令',
-          code: '运行了代码',
-          webSearch: '已搜索网页',
-          webFetch: '已访问网页',
-          subagents: '已协调子智能体',
-          plan: '更新了计划',
-          questions: '向用户提出了问题',
-          context: '已注入上下文',
-          tools: '已调用工具',
-        }
-        return labels[cat] ?? '已调用工具'
-      }
 
-      /** 工具参数里的 `description` 是模型写的这一步意图；没有就退回命令首行。 */
-      function processToolSummary(event) {
-        let args = {}
-        try {
-          args = JSON.parse(event.data?.arguments ?? '{}')
-        } catch {
-          args = {}
-        }
-        if (typeof args.description === 'string' && args.description.trim() !== '') return oneLine(args.description)
-        if (typeof args.command === 'string') {
-          const line = args.command.split(/\r?\n/u).map((part) => part.trim()).find((part) => part !== '')
-          if (line !== undefined) return oneLine(line)
-        }
-        return oneLine(args.path ?? args.file_path ?? args.filePath ?? args.query ?? args.name ?? event.data?.name ?? '')
-      }
 
       /**
        * 某一轮的「已完成」明细（原生 `TurnProcessNodeView` 展开后的第一层）：一步一行，
@@ -5723,25 +4701,6 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         return raw === '' ? '' : absolutePeerPath(raw)
       }
 
-      /**
-       * 按扩展名挑预览方式。返回 `'binary'` 表示右侧面板无法内嵌渲染
-       * （zip / docx / xlsx / pptx / exe…），调用方改走「显示文件位置」的路径页。
-       */
-      function previewModeOf(path) {
-        const suffix = extOf(path)
-        if (IMAGE_SUFFIXES.has(suffix)) return 'image'
-        if (PDF_SUFFIXES.has(suffix)) return 'pdf'
-        if (VIDEO_SUFFIXES.has(suffix)) return 'video'
-        if (AUDIO_SUFFIXES.has(suffix)) return 'audio'
-        if (OFFICE_SUFFIXES.has(suffix)) return 'office'
-        if (suffix === 'xlsx' || suffix === 'xls') return 'excel'
-        if (suffix === 'html' || suffix === 'htm') return 'html'
-        if (suffix === 'csv' || suffix === 'tsv') return 'csv'
-        if (suffix === 'md' || suffix === 'markdown') return 'markdown'
-        if (LANGUAGE_BY_EXT.has(suffix)) return 'code'
-        if (suffix === '' || TEXT_SUFFIXES.has(suffix)) return 'text'
-        return 'binary'
-      }
 
       /**
        * 卡片/链接的统一入口：能预览的就开右侧预览，不能预览的退到「路径」页
@@ -5831,44 +4790,10 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         }, kind === 'refresh' ? refreshGlyph() : kind === 'download' ? downloadGlyph() : kind === 'nav' ? navFolderGlyph(navOpen) : folderGlyph(15))
       }
 
-      /** 「打开」图标：原生 `IconRightUpOutlineRegular`（应用内打开用这个箭头，不是文件夹）。 */
-      function openInAppGlyph(size = 13) {
-        return h('svg', { width: size, height: size, viewBox: '0 0 16 16', fill: 'none', style: { flex: 'none', color: 'inherit' } },
-          h('path', {
-            d: 'M11.7256 2.77441C12.5538 2.77469 13.2256 3.44616 13.2256 4.27441V10.1416H12.2256V4.27441C12.2256 3.99844 12.0015 3.77469 11.7256 3.77441H5.7207V2.77441H11.7256Z',
-            fill: 'currentColor',
-          }),
-          h('path', { d: 'M2.77441 13.2255L12.3756 3.62427', stroke: 'currentColor', strokeWidth: 1 }))
-      }
 
-      function folderGlyph(size = 14) {
-        const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round' }
-        return h('svg', { width: size, height: size, ...styles.iconBox },
-          h('path', { d: 'M2.4 12.6V4.6a1 1 0 0 1 1-1h3l1.4 1.8h4.8a1 1 0 0 1 1 1v6.2a1 1 0 0 1-1 1H3.4a1 1 0 0 1-1-1Z', ...stroke }))
-      }
 
-      /** 文件树开关：原生 `IconFolderCloseRegular` / `IconFolderOpenRegular`。 */
-      function navFolderGlyph(open) {
-        const icon = open ? hostPrimitives?.IconFolderOpenRegular : hostPrimitives?.IconFolderCloseRegular
-        if (icon !== undefined && icon !== null) return h(icon, null)
-        const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1, strokeLinecap: 'round', strokeLinejoin: 'round' }
-        return h('svg', { width: 15, height: 15, viewBox: '0 0 16 16' },
-          h('path', { d: 'M1.9 12.4V4.4a1 1 0 0 1 1-1h3.2l1.3 1.7h6.7a1 1 0 0 1 1 1v6.3a1 1 0 0 1-1 1H2.9a1 1 0 0 1-1-1Z', ...stroke }),
-          open ? h('path', { d: 'M2.2 8.2h11.6', ...stroke }) : null)
-      }
 
-      /** 分段按钮右格的下拉箭头（原生 12px chevron-down）。 */
-      function caretDownGlyph() {
-        return h('svg', { width: 12, height: 12, viewBox: '0 0 12 12', style: { flex: 'none', color: 'inherit' } },
-          h('path', { d: 'M3 4.5L6 7.5L9 4.5', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round' }))
-      }
 
-      function refreshGlyph() {
-        const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round' }
-        return h('svg', { width: 15, height: 15, viewBox: '0 0 16 16', style: { flex: 'none', color: 'inherit' } },
-          h('path', { d: 'M13 8a5 5 0 1 1-1.6-3.7', ...stroke }),
-          h('path', { d: 'M13 2.6v3h-3', ...stroke }))
-      }
 
       /** 会话工作目录：present 的绝对路径解析与文件树根都用它。 */
       function peerCwd() {
@@ -6161,132 +5086,20 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         )
       }
 
-      /** 面板控件：全屏（原生 SidebarRight `FullscreenGlyph` 的四角弧块，16px，非 ui-primitives 的 fullscreen-outline）。 */
-      function fullscreenGlyph() {
-        return h('svg', { width: 15, height: 15, viewBox: '0 0 16 16', fill: 'none' },
-          h('path', {
-            d: 'M2.33203 10.4054V13.1681C2.33229 13.444 2.55605 13.6681 2.83203 13.6681H5.49512V14.6681H2.83203C2.00376 14.6681 1.33229 13.9963 1.33203 13.1681V10.4054H2.33203ZM14.6689 13.1681C14.6687 13.996 13.9968 14.6676 13.1689 14.6681H10.4951V13.6681H13.1689C13.4445 13.6676 13.6687 13.4437 13.6689 13.1681V10.4054H14.6689V13.1681ZM13.1689 1.33118C13.9969 1.33163 14.6688 2.00315 14.6689 2.83118V5.4054H13.6689V2.83118C13.6688 2.55544 13.4446 2.33162 13.1689 2.33118H10.4951V1.33118H13.1689ZM5.49512 2.33118H2.83203C2.55598 2.33118 2.33218 2.55516 2.33203 2.83118V5.4054H1.33203V2.83118C1.33218 2.00288 2.00369 1.33118 2.83203 1.33118H5.49512V2.33118Z',
-            fill: 'currentColor',
-          }))
-      }
 
-      /** 面板控件：退出全屏（原生 `ExitFullscreenGlyph`）。 */
-      function exitFullscreenGlyph() {
-        return h('svg', { width: 15, height: 15, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor' },
-          h('path', { d: 'M9 2.5V6C9 6.26522 9.10536 6.51957 9.29289 6.70711C9.48043 6.89464 9.73478 7 10 7H13.5' }),
-          h('path', { d: 'M7 13.5V10C7 9.73478 6.89464 9.48043 6.70711 9.29289C6.51957 9.10536 6.26522 9 6 9H2.5' }))
-      }
 
-      /** 面板控件：收起侧边栏（原生 `IconPanelLeftOutlineRegular` 镜像；图标组件不吃 style，镜像放在外壳上）。 */
-      function collapseGlyph() {
-        const icon = hostPrimitives?.IconPanelLeftOutlineRegular
-        return h('span', { style: { display: 'inline-flex', transform: 'scaleX(-1)' } },
-          icon !== undefined && icon !== null
-            ? h(icon, { size: 15 })
-            : h('svg', { width: 15, height: 15, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1 },
-                h('rect', { x: 1.5, y: 2.5, width: 13, height: 11, rx: 2 }),
-                h('path', { d: 'M6 2.5v11', stroke: 'currentColor' }),
-                h('path', { d: 'M1.5 4.5C1.5 3.4 2.4 2.5 3.5 2.5H6v11H3.5C2.4 13.5 1.5 12.6 1.5 11.5V4.5Z', fill: 'currentColor', stroke: 'none' })))
-      }
 
-      /** 树行左侧的展开箭头（原生 12px chevron，展开时旋转 90°）。 */
-      function caretRightGlyph(open) {
-        return h('svg', { width: 12, height: 12, viewBox: '0 0 12 12', style: { flex: 'none', color: 'inherit', transform: open ? 'rotate(90deg)' : undefined, transition: 'transform 120ms' } },
-          h('path', { d: 'M4.5 3L7.5 6L4.5 9', fill: 'none', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round', strokeLinejoin: 'round' }))
-      }
 
-      /** 文件夹行的 hover 三角：原生 `IconTriangleRightFillRegular`（实心、14px，展开时旋转 90°）。 */
-      function triangleFillGlyph(open) {
-        return h('svg', { width: 14, height: 14, viewBox: '0 0 16 16', style: { flex: 'none', display: 'block', color: 'inherit', transform: open ? 'rotate(90deg)' : undefined, transition: 'transform 150ms var(--ds-ease-in-out, ease-in-out)' } },
-          h('path', { d: 'M5.5 4.5C5.5 4.40714 5.52586 4.31612 5.57467 4.23713C5.62349 4.15815 5.69334 4.09431 5.77639 4.05279C5.85945 4.01126 5.95242 3.99368 6.0449 4.00202C6.13738 4.01036 6.22572 4.04429 6.3 4.1L10.967 7.6C11.0291 7.64657 11.0795 7.70697 11.1142 7.77639C11.1489 7.84582 11.167 7.92238 11.167 8C11.167 8.07762 11.1489 8.15418 11.1142 8.22361C11.0795 8.29303 11.0291 8.35343 10.967 8.4L6.3 11.9C6.22572 11.9557 6.13738 11.9896 6.0449 11.998C5.95242 12.0063 5.85945 11.9887 5.77639 11.9472C5.69334 11.9057 5.62349 11.8419 5.57467 11.7629C5.52586 11.6839 5.5 11.5929 5.5 11.5V4.5Z', fill: 'currentColor' }))
-      }
 
-      /** 菜单里的「重命名」：原生 `IconEditOutlineRegular` 的原路径（方框 + 斜笔），14px。 */
-      function renameGlyph(size = 14) {
-        return h('svg', { width: size, height: size, ...styles.iconBox },
-          h('path', { d: 'M8.85596 2.69971H4.19971C3.37141 2.69971 2.69992 3.37146 2.69971 4.19971V11.8003C2.69992 12.6285 3.37141 13.3003 4.19971 13.3003H11.8003C12.6283 13.2999 13.3001 12.6283 13.3003 11.8003V7.89893H14.3003V11.8003C14.3001 13.1806 13.1806 14.2999 11.8003 14.3003H4.19971C2.81913 14.3003 1.69992 13.1808 1.69971 11.8003V4.19971C1.69992 2.81918 2.81913 1.69971 4.19971 1.69971H8.85596V2.69971Z', fill: 'currentColor' }),
-          h('path', { d: 'M7.7849 8.23878L13.888 2.13574', fill: 'none', stroke: 'currentColor', strokeWidth: 1 }))
-      }
 
-      /** 「置顶」：原生 `IconPinOutlineRegular`（空心图钉）；`filled` 用 `IconPinFillRegular` 的实心路径。 */
-      function pinGlyph(size = 14, filled = false) {
-        const body = 'M9.96976 1.70572L13.1554 3.93629L10.9019 8.12317L11.5158 11.605L10.7192 12.7427L2.52767 7.00693L3.3243 5.86922L6.80612 5.25528L9.96976 1.70572Z'
-        const pin = 'M6.05285 9.47511C6.27284 9.16094 6.70586 9.08458 7.02003 9.30457C7.3342 9.52455 7.41055 9.95757 7.19057 10.2717L3.98587 14.4708L3.21223 13.9291L6.05285 9.47511Z'
-        return h('svg', { width: size, height: size, ...styles.iconBox },
-          filled
-            ? [h('path', { key: 'b', d: body, fill: 'currentColor', stroke: 'currentColor', strokeLinejoin: 'round' }),
-                h('path', { key: 'p', d: pin, fill: 'currentColor' })]
-            : [h('path', { key: 'b', d: body, fill: 'none', stroke: 'currentColor', strokeWidth: 1, strokeLinejoin: 'round' }),
-                h('path', { key: 'p', d: pin, fill: 'currentColor' })])
-      }
 
-      /** 「新会话」：原生 `IconNewChatOutlineRegular` 的原路径（气泡 + 十字），14px、1px 描边。 */
-      function newChatGlyph(size = 14) {
-        const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1, strokeLinecap: 'round', strokeLinejoin: 'round' }
-        return h('svg', { width: size, height: size, ...styles.iconBox },
-          h('path', { d: 'M2.37091 11.2501C1.58745 9.89288 1.32067 8.29835 1.61969 6.76006C1.91872 5.22177 2.76342 3.8433 3.99826 2.87846C5.2331 1.91362 6.77494 1.42737 8.33988 1.50925C9.90482 1.59113 11.3875 2.23562 12.5149 3.32406C13.6425 4.41269 14.3387 5.87206 14.4754 7.4334C14.612 8.99474 14.18 10.5529 13.2587 11.8209C12.3375 13.0888 10.9891 13.9813 9.46194 14.3337C8.18691 14.628 6.85895 14.5294 5.64989 14.0605C5.1712 13.8748 4.76962 13.4932 4.26534 13.3967C3.67413 13.2835 2.95257 13.5598 2.03794 14.3337', ...stroke }),
-          h('path', { d: 'M8 5V11', ...stroke }),
-          h('path', { d: 'M5 8H11', ...stroke }))
-      }
 
-      function searchGlyph(size = 14) {
-        const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1, strokeLinecap: 'round' }
-        return h('svg', { width: size, height: size, ...styles.iconBox },
-          h('circle', { cx: 7, cy: 7, r: 4.4, ...stroke }),
-          h('path', { d: 'M10.4 10.4L13.6 13.6', ...stroke }))
-      }
 
-      /** 「视图选项」字形：两条带滑块的横线（原生左栏 filters 图标）。 */
-      function slidersGlyph(size = 15) {
-        const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.1, strokeLinecap: 'round' }
-        return h('svg', { width: size, height: size, ...styles.iconBox },
-          h('path', { d: 'M2.6 5.4h10.8', ...stroke }),
-          h('circle', { cx: 6.2, cy: 5.4, r: 1.5, ...stroke }),
-          h('path', { d: 'M2.6 10.6h10.8', ...stroke }),
-          h('circle', { cx: 10, cy: 10.6, r: 1.5, ...stroke }))
-      }
 
-      /** 单列表字形：三行等长横线。 */
-      function listGlyph(size = 14) {
-        const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.1, strokeLinecap: 'round' }
-        return h('svg', { width: size, height: size, ...styles.iconBox },
-          h('path', { d: 'M2.8 4.4h10.4', ...stroke }),
-          h('path', { d: 'M2.8 8h10.4', ...stroke }),
-          h('path', { d: 'M2.8 11.6h10.4', ...stroke }))
-      }
 
-      /** 隐藏已归档字形：带斜杠的眼睛。 */
-      function eyeOffGlyph(size = 14) {
-        const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.1, strokeLinecap: 'round' }
-        return h('svg', { width: size, height: size, ...styles.iconBox },
-          h('path', { d: 'M2.4 8c1.4-2.6 3.4-4 5.6-4s4.2 1.4 5.6 4c-1.4 2.6-3.4 4-5.6 4S3.8 10.6 2.4 8Z', ...stroke }),
-          h('circle', { cx: 8, cy: 8, r: 1.7, ...stroke }),
-          h('path', { d: 'M3 13L13 3', ...stroke }))
-      }
 
-      /** 全部对话字形：对话气泡。 */
-      function chatGlyph(size = 14) {
-        const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.1, strokeLinecap: 'round' }
-        return h('svg', { width: size, height: size, ...styles.iconBox },
-          h('path', { d: 'M13.2 8.4a4.6 4.6 0 0 1-4.6 4.6H6.2L3.4 14.2v-2.4A4.6 4.6 0 0 1 8.6 3.8a4.6 4.6 0 0 1 4.6 4.6Z', ...stroke }))
-      }
 
-      /** 已归档字形：带盖的盒子。 */
-      function archiveGlyph(size = 14) {
-        const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.1, strokeLinecap: 'round' }
-        return h('svg', { width: size, height: size, ...styles.iconBox },
-          h('path', { d: 'M2.6 5.4h10.8v7.2a.8.8 0 0 1-.8.8H3.4a.8.8 0 0 1-.8-.8Z', ...stroke }),
-          h('path', { d: 'M2.2 2.8h11.6v2.6H2.2Z', ...stroke }),
-          h('path', { d: 'M6.2 8.4h3.6', ...stroke }))
-      }
 
-      /** 返回字形：细箭头（返回远程端列表用）。 */
-      function backArrowGlyph(size = 15) {
-        const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.2, strokeLinecap: 'round', strokeLinejoin: 'round' }
-        return h('svg', { width: size, height: size, ...styles.iconBox },
-          h('path', { d: 'M13 8H3.4', ...stroke }),
-          h('path', { d: 'M7 3.8L3 8l4 4.2', ...stroke }))
-      }
 
       /** 路径信息页：原路径与解析结果相同时只显示一条，避免同一个绝对路径出现两遍。 */
       function renderPathInfoBody() {
@@ -6310,431 +5123,18 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         )
       }
 
-      /** 插件自带资源的取用路径：pdf.js 的 worker 与 cMap/字体/wasm 仍由宿主 asset 路由提供。 */
-      function assetUrlOf(name) {
-        return `/api/remote-peers/asset?name=${encodeURIComponent(name)}`
-      }
-
-      /** TEMP-DIAG：渲染器没有控制台，用宿主的一条 GET 路由把排障信息写进 diag.log。 */
-      function diagNote(note) {
-        try {
-          void fetch(`/api/remote-peers/diag?note=${encodeURIComponent(note)}`).catch(() => {
-            // 排障通道自身不可用时不打扰预览主流程。
-            return undefined
-          })
-        } catch (oops) {
-          // 同上：诊断写入失败不影响渲染。
-          void oops
-        }
-      }
-
-      /**
-       * pdfjs 引擎：构建期由 esbuild 直接打进 bundle（与主体同版本 6.3.289），运行时不再做动态导入。
-       * 这里只留一条断言，避免再把「拿不到模块」的问题带进渲染层。
-       */
-      function pdfjsEngine() {
-        const lib = typeof PDFJS?.getDocument === 'function' ? PDFJS : PDFJS?.default
-        if (typeof lib?.getDocument !== 'function' || typeof lib?.PDFWorker?.create !== 'function') {
-          throw new Error(`pdfjs 未打进 bundle：keys=${Object.keys(PDFJS ?? {}).slice(0, 10).join(',')}`)
-        }
-        return lib
-      }
-
-      /** pdf.js 的 cMap / 标准字体 / wasm 资源按文件名取字节（原生是编译期 base64 内联的同一批资源）。 */
-      function pdfBinaryDataFactory() {
-        return class PdfBinaryData {
-          async fetch({ kind, filename }) {
-            const directory = kind === 'cMapUrl'
-              ? 'pdfjs/cmaps/'
-              : kind === 'standardFontDataUrl'
-                ? 'pdfjs/standard_fonts/'
-                : 'pdfjs/wasm/'
-            const response = await fetch(assetUrlOf(`${directory}${filename}`))
-            if (!response.ok) throw new Error(`pdfjs 资源缺失：${kind}/${filename}`)
-            return new Uint8Array(await response.arrayBuffer())
-          }
-        }
-      }
-
-      /**
-       * 起一个普通 worker 并等它就绪。worker 源码在构建期已内联（同时去掉了 export 尾巴），
-       * `WorkerMessageHandler` 的静态块会自己 `initializeFromPort(self)`。
-       */
-      function startPdfWorker() {
-        if (typeof pdfWorkerSource !== 'string' || pdfWorkerSource.length === 0) {
-          return Promise.reject(new Error('pdf.worker 源码没有内联进 bundle'))
-        }
-        const url = URL.createObjectURL(new Blob([
-          pdfWorkerSource,
-          `\nself.postMessage({ type: 'rp-pdf-ready' });\n`,
-        ], { type: 'text/javascript' }))
-        const worker = new Worker(url)
-        const ready = new Promise((resolve, reject) => {
-          const timer = setTimeout(() => {
-            cleanup()
-            reject(new Error('worker 启动超时'))
-          }, 15000)
-          const onMessage = (event) => {
-            if (event?.data?.type !== 'rp-pdf-ready') return
-            cleanup()
-            resolve(undefined)
-          }
-          const onError = (event) => {
-            cleanup()
-            reject(new Error(`worker 启动失败：${event?.message ?? '未知错误'}`))
-          }
-          const cleanup = () => {
-            clearTimeout(timer)
-            worker.removeEventListener('message', onMessage)
-            worker.removeEventListener('error', onError)
-          }
-          worker.addEventListener('message', onMessage)
-          worker.addEventListener('error', onError)
-        })
-        return ready.then(() => ({ worker, url }))
-      }
-
-      /**
-       * PDF 预览：与原生 `pdf/LazyPdfBody` 同一套 pdfjs 渲染（canvas + 连续滚动），
-       * 工具条按主体外观自绘：页码、缩放、适应宽度、旋转、下载。
-       * `url` 是本机的转发路由（对端字节流），组件自己去取字节。
-       */
-      function PdfPreview(input) {
-        const url = input.url
-        const name = input.name
-        const [phase, setPhase] = useState('loading')
-        const [message, setMessage] = useState('')
-        const [doc, setDoc] = useState(null)
-        const [zoom, setZoom] = useState(null)
-        const [pageNo, setPageNo] = useState(1)
-        const [width, setWidth] = useState(0)
-        const [rotation, setRotation] = useState(0)
-        const holderRef = useRef(null)
-        const pagesRef = useRef([])
-        const scrollRef = useRef(null)
-
-        useEffect(() => {
-          let alive = true
-          let task = null
-          let worker = null
-          let workerUrl = null
-          let stage = '取字节'
-          diagNote(`pdf mount ${String(url).slice(0, 120)}`)
-          setPhase('loading')
-          setDoc(null)
-          ;(async () => {
-            const response = await fetch(url)
-            if (!response.ok) throw new Error(`读取失败 ${response.status}`)
-            const type = response.headers.get('content-type') ?? ''
-            if (type.includes('json')) {
-              const body = await response.json()
-              throw new Error(body?.result?.error?.message ?? body?.error?.message ?? '对端没能转换这份文档')
-            }
-            const bytes = new Uint8Array(await response.arrayBuffer())
-            stage = '装载 pdfjs'
-            const lib = await pdfjsEngine()
-            // 与原生 `openPdf` 一致：自己持有 worker、等它就绪，再用 PDFWorker.create({ port }) 交给 getDocument。
-            stage = '启动 worker'
-            const started = await startPdfWorker()
-            worker = started.worker
-            workerUrl = started.url
-            stage = '解析文档'
-            const bridge = lib.PDFWorker.create({ port: worker })
-            task = lib.getDocument({
-              data: bytes,
-              worker: bridge,
-              BinaryDataFactory: pdfBinaryDataFactory(),
-              cMapPacked: true,
-              useWorkerFetch: false,
-              enableXfa: false,
-              stopAtErrors: true,
-            })
-            const loaded = await task.promise
-            if (!alive) return
-            setDoc(loaded)
-            setPhase('ready')
-          })().catch((failure) => {
-            if (!alive) return
-            const text = String(failure?.message ?? failure)
-            diagNote(`pdf preview failed at ${stage}: ${text}`)
-            setMessage(`${stage}失败：${text}${vendorTrace.length === 0 ? '' : `（${vendorTrace.slice(-2).join(' / ')}）`}`)
-            setPhase('error')
-          })
-          return () => {
-            alive = false
-            diagNote('pdf unmount')
-            if (task !== null) void task.destroy()
-            worker?.terminate()
-            if (workerUrl !== null) URL.revokeObjectURL(workerUrl)
-          }
-        }, [url])
-
-        // 适应宽度：以容器可用宽度对第 1 页取比例（缩放以百分比保存，切页不改比例）。
-        useEffect(() => {
-          if (doc === null) return
-          let cancelled = false
-          ;(async () => {
-            const first = await doc.getPage(1)
-            if (cancelled) return
-            const base = first.getViewport({ scale: 1, rotation })
-            const box = holderRef.current
-            const available = (box?.clientWidth ?? 640) - 48
-            setWidth(available)
-            setZoom((current) => current ?? Math.round((available / base.width) * 100))
-          })()
-          return () => { cancelled = true }
-        }, [doc, rotation])
-
-        // 逐页渲染：每页一个 canvas，按当前缩放画；页容器先按比例占位，滚动不变形。
-        useEffect(() => {
-          if (doc === null || zoom === null) return
-          let cancelled = false
-          const targets = pagesRef.current
-          ;(async () => {
-            for (let index = 1; index <= doc.numPages; index += 1) {
-              if (cancelled) return
-              const page = await doc.getPage(index)
-              if (cancelled) return
-              const ratio = zoom / 100
-              const viewport = page.getViewport({ scale: ratio, rotation })
-              const canvas = targets[index - 1]
-              if (canvas === undefined) continue
-              const device = window.devicePixelRatio || 1
-              canvas.width = Math.floor(viewport.width * device)
-              canvas.height = Math.floor(viewport.height * device)
-              canvas.style.width = `${viewport.width}px`
-              canvas.style.height = `${viewport.height}px`
-              const context = canvas.getContext('2d')
-              await page.render({
-                canvasContext: context,
-                viewport,
-                transform: device === 1 ? undefined : [device, 0, 0, device, 0, 0],
-              }).promise
-            }
-          })()
-          return () => { cancelled = true }
-        }, [doc, zoom, width, rotation])
-
-        const total = doc === null ? 0 : doc.numPages
-        const step = (delta) => setZoom((current) => Math.max(20, Math.min(400, (current ?? 100) + delta)))
-        const fit = () => {
-          if (doc === null) return
-          void doc.getPage(1).then((page) => {
-            const base = page.getViewport({ scale: 1, rotation })
-            const available = (holderRef.current?.clientWidth ?? 640) - 48
-            setZoom(Math.round((available / base.width) * 100))
-          })
-        }
-        const scrollToPage = (next) => {
-          const target = pagesRef.current[next - 1]
-          if (target !== undefined) target.scrollIntoView({ block: 'start', behavior: 'smooth' })
-        }
-        const trackPage = () => {
-          const scroll = scrollRef.current
-          if (scroll === null) return
-          const top = scroll.getBoundingClientRect().top + 12
-          let current = 1
-          pagesRef.current.forEach((canvas, at) => {
-            if (canvas !== undefined && canvas.getBoundingClientRect().top <= top) current = at + 1
-          })
-          setPageNo(current)
-        }
-
-        const toolbar = h('div', { style: styles.pdfBar },
-          h('button', { type: 'button', style: styles.pdfTool, title: '上一页', onClick: () => scrollToPage(Math.max(1, pageNo - 1)) }, '‹'),
-          h('span', { style: styles.pdfPageNo }, total === 0 ? '—' : `${pageNo} / ${total}`),
-          h('button', { type: 'button', style: styles.pdfTool, title: '下一页', onClick: () => scrollToPage(Math.min(total || 1, pageNo + 1)) }, '›'),
-          h('span', { style: styles.pdfDivider }),
-          h('button', { type: 'button', style: styles.pdfTool, title: '缩小', onClick: () => step(-10) }, '−'),
-          h('span', { style: styles.pdfZoom }, zoom === null ? '—' : `${zoom}%`),
-          h('button', { type: 'button', style: styles.pdfTool, title: '放大', onClick: () => step(10) }, '+'),
-          h('span', { style: { flex: 1 } }),
-          h('button', { type: 'button', style: styles.pdfTool, title: '旋转 90°', onClick: () => setRotation((current) => (current + 90) % 360) }, '⟳'),
-          h('button', { type: 'button', style: styles.pdfTool, title: '适应宽度', onClick: fit }, '⇔'),
-          h('a', { href: url, download: name, style: styles.pdfToolLink, title: '下载' }, '⤓'),
-        )
-
-        if (phase === 'error') {
-          return h('div', { style: styles.pdfWrap },
-            toolbar,
-            h('div', { style: styles.pdfError }, message || '文档打开失败'),
-          )
-        }
-        if (phase === 'loading' || doc === null) {
-          return h('div', { style: styles.pdfWrap }, toolbar, renderPreviewLoading())
-        }
-        return h('div', { style: styles.pdfWrap },
-          toolbar,
-          h('div', { style: styles.pdfScroll, ref: scrollRef, onScroll: trackPage },
-            h('div', { style: styles.pdfPages, ref: holderRef },
-              Array.from({ length: doc.numPages }, (_, at) => h('canvas', {
-                key: `${at}`,
-                ref: (element) => { pagesRef.current[at] = element ?? undefined },
-                style: styles.pdfCanvas,
-              })),
-            ),
-          ),
-        )
-      }
 
 
-      /** 图片预览：适应宽度 / 百分比缩放 / Ctrl+滚轮缩放（对齐主体 image 的缩放视口）。 */
-      function ImagePreview(input) {
-        const url = input.url
-        const name = input.name
-        const [zoom, setZoom] = useState(null)
-        const [size, setSize] = useState({ width: 0, height: 0 })
-        const [failed, setFailed] = useState(false)
-        const boxRef = useRef(null)
-        const fit = () => {
-          if (size.width === 0) return
-          const available = (boxRef.current?.clientWidth ?? 600) - 32
-          setZoom(Math.round((available / size.width) * 100))
-        }
-        const step = (delta) => setZoom((current) => Math.max(10, Math.min(400), (current ?? 100) + delta))
-        return h('div', { style: styles.imgWrap },
-          h('div', { style: styles.pdfBar },
-            h('button', { type: 'button', style: styles.pdfTool, title: '缩小', onClick: () => step(-10) }, '−'),
-            h('span', { style: styles.pdfZoom }, zoom === null ? '—' : `${zoom}%`),
-            h('button', { type: 'button', style: styles.pdfTool, title: '放大', onClick: () => step(10) }, '+'),
-            h('button', { type: 'button', style: styles.pdfTool, title: '适应宽度', onClick: fit }, '⇔'),
-            h('button', { type: 'button', style: styles.pdfTool, title: '原始大小', onClick: () => setZoom(100) }, '1:1'),
-            h('span', { style: { flex: 1 } }),
-            h('a', { href: url, download: name, style: styles.pdfToolLink, title: '下载' }, '⤓'),
-          ),
-          h('div', {
-            style: styles.imgScroll,
-            ref: boxRef,
-            onWheel: (event) => {
-              if (!event.ctrlKey) return
-              event.preventDefault()
-              step(event.deltaY < 0 ? 10 : -10)
-            },
-          },
-            h('img', {
-              src: url,
-              alt: name,
-              style: zoom === null ? styles.previewImg : { ...styles.previewImg, width: Math.round(size.width * (zoom / 100)) || undefined },
-              onLoad: (event) => {
-                const image = event.currentTarget
-                setSize({ width: image.naturalWidth, height: image.naturalHeight })
-                if (zoom === null) {
-                  const available = (boxRef.current?.clientWidth ?? 600) - 32
-                  setZoom(Math.round((available / (image.naturalWidth || 1)) * 100))
-                }
-              },
-              onError: () => setFailed(true),
-            }),
-            failed ? h('div', { style: styles.pdfError }, '图片不可用，可能已被移动或删除') : null,
-          ),
-        )
-      }
 
-      /** SheetJS 引擎：构建期由 esbuild 打进 bundle（主体 Excel 预览用的就是它，0.20.3）。 */
-      function xlsxEngine() {
-        const lib = typeof XLSX_LIB?.read === 'function' ? XLSX_LIB : XLSX_LIB?.default
-        if (typeof lib?.read !== 'function') {
-          throw new Error(`SheetJS 未打进 bundle：keys=${Object.keys(XLSX_LIB ?? {}).slice(0, 10).join(',')}`)
-        }
-        return lib
-      }
 
-      /**
-       * Excel / XLS 预览：按主体同源方案用 SheetJS 解包，再按 `excel` 工具条外观自绘网格
-       * （列标 + 行号 + 表头行 + 底部 Sheet 页签）。只读，不对对端文件做任何改动。
-       */
-      function ExcelPreview(input) {
-        const url = input.url
-        const [phase, setPhase] = useState('loading')
-        const [message, setMessage] = useState('')
-        const [sheets, setSheets] = useState([])
-        const [active, setActive] = useState(0)
-        useEffect(() => {
-          let alive = true
-          diagNote(`xlsx mount ${String(url).slice(-60)}`)
-          setPhase('loading')
-          setSheets([])
-          ;(async () => {
-            const response = await fetch(url)
-            if (!response.ok) throw new Error(`读取失败 ${response.status}`)
-            const bytes = new Uint8Array(await response.arrayBuffer())
-            const lib = await xlsxEngine()
-            const book = lib.read(bytes, { type: 'array', cellDates: true })
-            const list = (book.SheetNames ?? []).map((sheetName) => {
-              const sheet = book.Sheets[sheetName] ?? {}
-              const rows = lib.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '', blankrows: false })
-              const widths = (sheet['!cols'] ?? []).map((column) => (column?.wpx ?? (column?.wch === undefined ? undefined : Math.round(column.wch * 8 + 10))))
-              return { name: sheetName, rows, widths }
-            })
-            if (!alive) return
-            setSheets(list)
-            setActive(0)
-            setPhase('ready')
-          })().catch((failure) => {
-            if (!alive) return
-            setMessage(String(failure?.message ?? failure))
-            setPhase('error')
-          })
-          return () => { alive = false }
-        }, [url])
 
-        if (phase !== 'ready') {
-          return h('div', { style: styles.previewCsvBody },
-            phase === 'error'
-              ? h('div', { style: { ...styles.previewScroller, ...styles.previewTextDoc, color: 'var(--dsw-alias-state-error-primary, #c0392b)' } }, message || '表格打开失败')
-              : renderPreviewLoading(),
-          )
-        }
-        const sheet = sheets[active] ?? { name: '', rows: [], widths: [] }
-        const shown = (sheet.rows ?? []).slice(0, 400)
-        const columns = Math.max(1, shown.reduce((widest, row) => Math.max(widest, row.length), 1), sheet.widths.length)
-        const template = `28px ${Array.from({ length: columns }, (_, at) => {
-          const width = sheet.widths[at]
-          return typeof width === 'number' && width > 0 ? `${Math.max(56, Math.min(320, width))}px` : 'minmax(88px, 1fr)'
-        }).join(' ')}`
-        return h('div', { style: styles.previewCsvBody },
-          tableFormulaBar(shown[0]?.[0]),
-          tableGrid(shown, columns, template),
-          h('div', { style: styles.excelTabs },
-            sheets.map((item, at) => h('button', {
-              key: `${at}`,
-              type: 'button',
-              style: at === active ? { ...styles.excelTab, ...styles.excelTabActive } : styles.excelTab,
-              onClick: () => setActive(at),
-            }, item.name)),
-            h('span', { style: { flex: 1 } }),
-            h('span', { style: styles.csvFooterText }, `${shown.length} 行 · 100%`),
-          ),
-        )
-      }
 
-      function renderPreviewLoading() {
-        return h('div', { style: styles.previewLoading, role: 'status', 'aria-label': '文档渲染中...' },
-          h('svg', { width: 28, height: 28, viewBox: '0 0 24 24', style: styles.previewSpinner, 'aria-hidden': 'true' },
-            h('g', { style: styles.previewSpinnerMotion },
-              h('circle', { cx: 12, cy: 12, r: 9.5, fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', opacity: 0.25 }),
-              h('circle', { cx: 12, cy: 12, r: 9.5, fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeDasharray: '12 150', style: styles.previewSpinnerArc }),
-            ),
-          ),
-          h('span', null, '文档渲染中...'),
-        )
-      }
 
-      /** 目录项里的文件字形（文档折角，14px）。 */
-      function fileGlyph(size = 14) {
-        const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round' }
-        return h('svg', { width: size, height: size, ...styles.iconBox },
-          h('path', { d: 'M8.6 2.4H4.6a1 1 0 0 0-1 1v9.2a1 1 0 0 0 1 1h6.8a1 1 0 0 0 1-1V6.2Z', ...stroke }),
-          h('path', { d: 'M8.6 2.4V6.2h3.8', ...stroke }))
-      }
 
-      /** 文件大小（原生文件树用 B/KB/MB 的紧凑写法）。 */
-      function formatBytes(value) {
-        if (typeof value !== 'number' || !Number.isFinite(value)) return ''
-        if (value < 1024) return `${value} B`
-        if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`
-        return `${(value / 1024 / 1024).toFixed(1)} MB`
-      }
+
+
+
+
 
       /** 目录预览：直接子项列表，点目录继续下钻、点文件按文件预览打开（原生侧栏目录视图）。 */
       function renderDirectoryBody(path) {
@@ -6930,51 +5330,8 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         )
       }
 
-      /**
-       * 表格网格（列标 + 行号 + 单元格）：CSV 预览与 xlsx 工作表预览共用同一套外观。
-       * @param shown - 已截断到可视行数的二维单元格
-       * @param columns - 列数
-       * @param template - `gridTemplateColumns`（首列固定行号宽）
-       */
-      function tableGrid(shown, columns, template) {
-        const headerRow = h('div', { key: 'cols', style: { display: 'grid', gridTemplateColumns: template, position: 'sticky', top: 0, zIndex: 2 } },
-          h('div', { style: { ...styles.csvColHead, position: 'static' } }, ''),
-          Array.from({ length: columns }, (_, at) => h('div', { key: at, style: { ...styles.csvColHead, position: 'static' } }, columnName(at))),
-        )
-        const bodyRows = shown.map((row, rowIndex) => h('div', { key: rowIndex, style: { display: 'grid', gridTemplateColumns: template } },
-          h('div', { style: { ...styles.csvRowHead, position: 'static' } }, String(rowIndex + 1)),
-          Array.from({ length: columns }, (_, at) => h('div', { key: at, style: styles.csvCell, title: row[at] ?? '' }, row[at] ?? '')),
-        ))
-        return h('div', { style: styles.csvGridWrap },
-          h('div', { style: styles.csvGrid }, headerRow, bodyRows),
-        )
-      }
 
-      /** 表格上方的 A1 / fx 条（公式栏外观，取当前选中单元格的值）。 */
-      function tableFormulaBar(value) {
-        return h('div', { style: styles.csvBar },
-          h('span', { style: styles.csvCellRef }, 'A1'),
-          h('span', { style: styles.csvFx }, 'fx'),
-          h('span', { style: { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, value ?? ''),
-        )
-      }
 
-      /** CSV：A1 / fx 工具条 + 列标 + 行号 + 单元格网格 + 底部 `CSV 100%`（同原生表格预览外观）。 */
-      function renderCsvBody(text) {
-        const rows = parseCsvRows(text)
-        const shown = rows.slice(0, 200)
-        const columns = shown.reduce((widest, row) => Math.max(widest, row.length), 1)
-        const template = `28px repeat(${columns}, minmax(72px, 1fr))`
-        return h('div', { style: styles.previewCsvBody },
-          tableFormulaBar(shown[0]?.[0]),
-          tableGrid(shown, columns, template),
-          h('div', { style: styles.csvFooter },
-            h('span', null, 'CSV'),
-            h('span', { style: { flex: 1 } }),
-            h('span', null, '100%'),
-          ),
-        )
-      }
 
 
       function renderRichText(text) {
@@ -7092,29 +5449,8 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
                 others.map((file) => h(StagedChip, { key: file.id, file, onRemove: dropStaged, onRetry: retryStaged }))))
       }
 
-      /** 12px 细叉：原生 `IconCloseFillRegular` 的尺寸与观感（静止时透明、悬停才露出来）。 */
-      function closeGlyph(size = 12) {
-        return h('svg', { width: size, height: size, ...styles.iconBox, 'aria-hidden': 'true' },
-          h('path', {
-            d: 'M3.4 3.4 12.6 12.6M12.6 3.4 3.4 12.6',
-            fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round',
-          }))
-      }
 
-      /** 16px 三角警告：对端明说拒绝了这份附件时盖在缩略图正中。 */
-      function warningGlyph(size = 16) {
-        return h('svg', { width: size, height: size, ...styles.iconBox, 'aria-hidden': 'true' },
-          h('path', { d: 'M8 2.4 14.4 13.2H1.6Z', fill: 'none', stroke: 'currentColor', strokeWidth: 1.3 }),
-          h('path', { d: 'M8 6.2v3.2', stroke: 'currentColor', strokeWidth: 1.3 }),
-          h('circle', { cx: 8, cy: 11.3, r: 0.85, fill: 'currentColor' }))
-      }
 
-      /** 16px 重试箭头：普通上传失败时盖在缩略图正中。 */
-      function retryGlyph(size = 16) {
-        return h('svg', { width: size, height: size, ...styles.iconBox, 'aria-hidden': 'true' },
-          h('path', { d: 'M13 8a5 5 0 1 1-1.5-3.6', fill: 'none', stroke: 'currentColor', strokeWidth: 1.3 }),
-          h('path', { d: 'M13.2 2.4v3.4h-3.4', fill: 'none', stroke: 'currentColor', strokeWidth: 1.3 }))
-      }
 
       /**
        * 缩略图的移除钮：静止透明，悬停整块或自身聚焦才出现（原生 `AttachmentRail .remove`），
@@ -7365,30 +5701,8 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         if (sent) releaseStaged()
       }
 
-      /** 发送箭头：照搬 InputBar.tsx 的 16px 实心箭头（不是描边版 send-outline）。 */
-      function sendGlyph() {
-        return h('svg', { width: 16, height: 16, viewBox: '0 0 16 16', style: { display: 'block' } },
-          h('path', {
-            d: 'M8.3125 0.980183C8.66767 1.0531 8.97902 1.20418 9.2627 1.43233C9.48724 1.61297 9.73029 1.85793 9.97949 2.10714L14.707 6.83468L13.293 8.24874L9 3.95577V15.0417H7V3.95577L2.70703 8.24874L1.29297 6.83468L6.02051 2.10714C6.26971 1.85793 6.51277 1.61297 6.7373 1.43233C6.97662 1.23986 7.28445 1.04402 7.6875 0.980183C7.8973 0.947006 8.1031 0.95516 8.3125 0.980183Z',
-            fill: 'currentColor',
-          }))
-      }
 
-      /** 按钮内的转圈指示器：底环 + 旋转弧，沿用原生 1.5s 周期。 */
-      function spinnerGlyph(size = 12) {
-        const box = { display: 'block', flex: 'none' }
-        return h('svg', { width: size, height: size, viewBox: '0 0 16 16', style: box, 'aria-hidden': 'true' },
-          h('g', { style: { transformOrigin: 'center', animation: 'dsh-rp-spin 1s linear infinite' } },
-            h('circle', { cx: 8, cy: 8, r: 6, fill: 'none', stroke: 'currentColor', strokeOpacity: 0.3, strokeWidth: 2 }),
-            h('path', { d: 'M8 2a6 6 0 0 1 6 6', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' })))
-      }
 
-      /** 发送中的转圈（同 InputBar .sendingSpinner：底环 35% + 2px 弧）。 */
-      function sendingGlyph() {
-        return h('svg', { width: 16, height: 16, viewBox: '0 0 16 16', style: { display: 'block' } },
-          h('circle', { cx: 8, cy: 8, r: 6, fill: 'none', stroke: 'currentColor', strokeOpacity: 0.35, strokeWidth: 2 }),
-          h('path', { d: 'M8 2a6 6 0 0 1 6 6', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' }))
-      }
 
       /** 「+」菜单：添加（文件/目标/计划）与指令（压缩/下载日志）。 */
       function renderPlusMenu() {
@@ -7657,32 +5971,8 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         }, toBottomGlyph())
       }
 
-      /** 回到底部的 chevron-down（14px、1.3 stroke，同 IconChevronDownOutlineRegular）。 */
-      function toBottomGlyph() {
-        return h('svg', { width: 14, height: 14, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round' },
-          h('path', { d: 'M4 6.4L8 10.4L12 6.4' }))
-      }
 
-      /** 速度文案：原生 `formatTokensPerSecond` —— ≥10 取整，否则一位小数。 */
-      function speedText(value) {
-        const clamped = Math.max(0, value)
-        if (!(clamped > 0)) return null
-        return clamped >= 10 ? `${Math.round(clamped)} tok/s` : `${Math.round(clamped * 10) / 10} tok/s`
-      }
 
-      /** 缓存命中百分比：原生 `formatCacheHitPercent` —— 可指定小数位；不足 100% 绝不写成 100。 */
-      function cacheHitText(cacheRead, billedInput, decimals = 0) {
-        if (!(billedInput > 0) || cacheRead === null || cacheRead === undefined) return null
-        if (cacheRead >= billedInput) return '100'
-        const unit = decimals === 1 ? 10 : 1
-        const units = Math.round((cacheRead / billedInput) * 100 * unit)
-        if (units < 100 * unit) {
-          if (decimals === 0) return String(units)
-          const tenths = units / 10
-          return Number.isInteger(tenths) ? String(tenths) : tenths.toFixed(1)
-        }
-        return decimals === 1 ? '99.9' : '99'
-      }
 
       /** 统计行三颗药丸：先取对端投影（整段持久日志），拿不到才退回窗口事件折叠。 */
       function renderStatusLine() {
@@ -7908,26 +6198,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         )
       }
 
-      /** 统计浮层里的用时：45.2 秒 / 19分6秒（原生 `formatDuration`）。 */
-      function formatDurationCompact(ms) {
-        const seconds = Math.max(0, ms) / 1000
-        if (seconds < 60) {
-          const rounded = Math.round(seconds * 10) / 10
-          return `${rounded} 秒`
-        }
-        const whole = Math.round(seconds)
-        return `${Math.floor(whole / 60)}分${whole % 60}秒`
-      }
 
-      /** 「+」控件图标：照搬 ui-primitives plus-outline（16px、stroke 1）。 */
-      function plusGlyph() {
-        return h('svg', {
-          width: 14, height: 14, viewBox: '0 0 16 16', fill: 'none', strokeWidth: 1.3,
-          style: { display: 'block' },
-        },
-        h('path', { d: 'M8 2V14', stroke: 'currentColor' }),
-        h('path', { d: 'M2 8H14', stroke: 'currentColor' }))
-      }
 
       /** 弹窗警示图标：18px 三角描边（对齐 Modal 的 IconWarningOutlineRegular）。 */
       function warningIcon(size) {
@@ -8037,15 +6308,6 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
           ))
       }
 
-      /** 紧凑 token 数：原生 `formatTokens` —— 100 以上取整，以下保留一位小数。 */
-      function formatTokens(value) {
-        const scaled = (candidate) => (candidate >= 100
-          ? String(Math.round(candidate))
-          : String(Math.round(candidate * 10) / 10))
-        if (value < 1000) return String(value)
-        if (value < 1000000) return `${scaled(value / 1000)}K`
-        return `${scaled(value / 1000000)}M`
-      }
     }
 
     function field(label, value, onChange, options = {}) {
@@ -8405,12 +6667,6 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       return typeof value === 'string' && (/^[A-Za-z]:[\\/]/.test(value) || value.startsWith('/'))
     }
 
-    /** 扩展名（小写、不含点）。 */
-    function extOf(name) {
-      const clean = String(name ?? '').split(/[\\/]/).pop() ?? ''
-      const at = clean.lastIndexOf('.')
-      return at <= 0 ? '' : clean.slice(at + 1).toLowerCase()
-    }
 
     function baseNameOf(value) {
       const clean = String(value ?? '')
@@ -8431,46 +6687,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       return `${base.replace(/[\\/]$/u, '')}${separator}${relative}`
     }
 
-    /** CSV：支持引号、成对引号与内嵌逗号/换行，够读导出表。 */
-    function parseCsvRows(text) {
-      const rows = []
-      let row = []
-      let field = ''
-      let quoted = false
-      const source = String(text ?? '')
-      for (let index = 0; index < source.length; index += 1) {
-        const char = source[index]
-        if (quoted) {
-          if (char === '"' && source[index + 1] === '"') {
-            field += '"'
-            index += 1
-          } else if (char === '"') {
-            quoted = false
-          } else {
-            field += char
-          }
-          continue
-        }
-        if (char === '"') { quoted = true; continue }
-        if (char === ',') { row.push(field); field = ''; continue }
-        if (char === '\r') continue
-        if (char === '\n') { row.push(field); rows.push(row); row = []; field = ''; continue }
-        field += char
-      }
-      if (field !== '' || row.length > 0) { row.push(field); rows.push(row) }
-      return rows
-    }
 
-    /** 0→A、25→Z、26→AA。 */
-    function columnName(index) {
-      let value = index
-      let name = ''
-      do {
-        name = String.fromCharCode(65 + (value % 26)) + name
-        value = Math.floor(value / 26) - 1
-      } while (value >= 0)
-      return name
-    }
 
     /** 消息时钟：与原生死齐 —— 当天只给 `HH:mm`，隔天补 `M月D日`，跨年再补年份。 */
     function formatClock(value) {

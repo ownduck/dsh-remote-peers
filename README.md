@@ -86,7 +86,7 @@ npm run probe     # headless render smoke for the panel
 npm run audit     # dead declarations / duplicated blocks in src/client.js
 ```
 
-Layout: `index.mjs` is the Host face (gateway, routes, local copies); `src/client.js` is the Client face (panel UI); `scripts/build.mjs` bundles the client; `probes/` holds smoke scripts; `vendor/pdfjs` carries the assets the preview serves. Deep implementation notes live in [`docs/internals.zh-CN.md`](docs/internals.zh-CN.md) (Chinese).
+Layout: `index.mjs` is the Host face (gateway, routes, local copies); `src/client.js` is the Client face (panel UI: state, RPC, layout), with `src/theme.js` (style tokens), `src/icons.js` (inline SVG glyphs), `src/preview.js` (PDF/image/Excel preview) and `src/conversation.js` (model, usage and process-label helpers) split out; `scripts/build.mjs` bundles the client; `probes/` holds smoke scripts; `vendor/pdfjs` carries the assets the preview serves. Deep implementation notes live in [`docs/internals.zh-CN.md`](docs/internals.zh-CN.md) (Chinese).
 
 ## License
 
