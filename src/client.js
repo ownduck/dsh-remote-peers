@@ -2,7 +2,7 @@
 const react = require('react')
 import { SCROLL_SKIN, T, styles } from './theme.js'
 import { copyGlyph, checkGlyph, databaseGlyph, gaugeGlyph, contextGlyph, downloadGlyph, openInAppGlyph, folderGlyph, navFolderGlyph, caretDownGlyph, refreshGlyph, fullscreenGlyph, exitFullscreenGlyph, collapseGlyph, caretRightGlyph, triangleFillGlyph, renameGlyph, pinGlyph, newChatGlyph, searchGlyph, slidersGlyph, listGlyph, eyeOffGlyph, chatGlyph, archiveGlyph, backArrowGlyph, fileGlyph, closeGlyph, warningGlyph, retryGlyph, sendGlyph, spinnerGlyph, sendingGlyph, toBottomGlyph, plusGlyph } from './icons.js'
-import { PdfPreview, ImagePreview, ExcelPreview, renderPreviewLoading, formatBytes, renderCsvBody, previewModeOf, extOf } from './preview.js'
+import { diagNote, PdfPreview, ImagePreview, ExcelPreview, renderPreviewLoading, formatBytes, renderCsvBody, previewModeOf, extOf } from './preview.js'
 import { modelNameOf, permissionLabel, permissionOf, presetNameOf, selectionOf, metricsOf, effortOf, processToolLabelOf, processToolKind, processKindLabelOf, processToolSummary, oneLine, speedText, cacheHitText, formatTokens, formatExactTokens, formatDurationCompact } from './conversation.js'
 /** 第二层逐行左侧图标的原生 SVG 内联（ui-primitives artwork 的 1px regular 版，14px 显示）。 */
 const PROCESS_ROW_ICONS = {
