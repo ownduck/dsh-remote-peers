@@ -2439,6 +2439,20 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         for (const attachment of staged) void uploadAttachment(activePeer, openSession, attachment)
       }, [activePeer, openSession, uploadAttachment])
 
+      /**
+       * 一次粘贴收下附件：有文件就登记并拦住默认粘贴；只粘了文件夹则提示一句（文件夹过不了网关）。
+       * @param event - 粘贴事件（剪贴板来自 textarea 自身或文档级兜底）
+       */
+      const takePaste = useCallback((event) => {
+        const pasted = clipboardFilesOf(event.clipboardData)
+        if (pasted.files.length === 0) {
+          if (pasted.folders > 0) setError('文件夹不能作为附件，请直接粘贴文件')
+          return
+        }
+        event.preventDefault()
+        stageFiles(pasted.files)
+      }, [stageFiles])
+
       /** 移除一份待发附件：顺手释放缩略图的 blob URL。 */
       const dropStaged = useCallback((id) => {
         setPendingFiles((previous) => {
@@ -2471,14 +2485,11 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
           if (event.defaultPrevented || event.clipboardData === null) return
           const origin = event.composedPath().find((value) => value instanceof Element)
           if (origin instanceof Element && origin.closest(editable) !== null) return
-          const files = clipboardFilesOf(event.clipboardData)
-          if (files.length === 0) return
-          event.preventDefault()
-          stageFiles(files)
+          takePaste(event)
         }
         document.addEventListener('paste', onPaste)
         return () => document.removeEventListener('paste', onPaste)
-      }, [stageFiles])
+      }, [takePaste])
 
       /**
        * 切权限预设：走宿主的 `commands/execute`（`/permission <preset>`），
@@ -6742,12 +6753,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
           ref: inputRef, style, rows: 1, value: promptText, placeholder,
           onChange: (event) => { setPromptText(event.target.value); growComposer(event.target) },
           /* 粘贴带文件就收下来（原生 PASTE_COMMAND：先吃附件，只有纯文本才走默认粘贴）。 */
-          onPaste: (event) => {
-            const files = clipboardFilesOf(event.clipboardData)
-            if (files.length === 0) return
-            event.preventDefault()
-            stageFiles(files)
-          },
+          onPaste: (event) => { takePaste(event) },
           onKeyDown: (event) => {
             if (event.key === 'Enter' && !event.shiftKey) {
               event.preventDefault()
@@ -7671,19 +7677,29 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
     const IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
 
     /**
-     * 剪贴板里的文件，按剪贴板顺序（原生 `clipboardFiles` 的同一取法）。
+     * 剪贴板里的文件，按剪贴板顺序（原生 `clipboardFiles` 的同一取法），并挑出其中被条目 API
+     * 报成目录的成员 —— 网关只能传单个文件，文件夹一律丢在本地。
      * @param transfer - 一次粘贴事件的 clipboardData
-     * @returns 粘贴进来的 File 列表
+     * @returns `files` 是能当附件粘贴的 File，`folders` 是被挡下的目录个数
      */
     function clipboardFilesOf(transfer) {
-      if (transfer === null || transfer === undefined) return []
+      if (transfer === null || transfer === undefined) return { files: [], folders: 0 }
       const files = []
+      let folders = 0
       for (const item of transfer.items ?? []) {
         if (item.kind !== 'file') continue
         const file = typeof item.getAsFile === 'function' ? item.getAsFile() : null
-        if (file !== null) files.push(file)
+        if (file === null) continue
+        const entryOf = typeof item.webkitGetAsEntry === 'function'
+          ? () => item.webkitGetAsEntry()
+          : typeof item.getAsEntry === 'function' ? () => item.getAsEntry() : null
+        if (entryOf !== null && entryOf()?.isDirectory === true) {
+          folders += 1
+          continue
+        }
+        files.push(file)
       }
-      return files
+      return { files, folders }
     }
 
     /** RPC 信封校验：对端说 ok 才算成功，否则按对端文案抛错；返回值用 `.value` 取。 */
