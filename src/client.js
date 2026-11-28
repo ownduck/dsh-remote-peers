@@ -2443,17 +2443,14 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       }, [activePeer, openSession, uploadAttachment])
 
       /**
-       * 一次粘贴收下附件：有文件就登记并拦住默认粘贴；只粘了文件夹则提示一句（文件夹过不了网关）。
+       * 一次粘贴收下附件：有文件就登记并拦住默认粘贴，文件夹静默丢掉（原生 `clipboardFiles` 也不收目录）。
        * @param event - 粘贴事件（剪贴板来自 textarea 自身或文档级兜底）
        */
       const takePaste = useCallback((event) => {
-        const pasted = clipboardFilesOf(event.clipboardData)
-        if (pasted.files.length === 0) {
-          if (pasted.folders > 0) setError('文件夹不能作为附件，请直接粘贴文件')
-          return
-        }
+        const files = clipboardFilesOf(event.clipboardData)
+        if (files.length === 0) return
         event.preventDefault()
-        stageFiles(pasted.files)
+        stageFiles(files)
       }, [stageFiles])
 
       /** 移除一份待发附件：顺手释放缩略图的 blob URL。 */
@@ -7680,15 +7677,14 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
     const IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
 
     /**
-     * 剪贴板里的文件，按剪贴板顺序（原生 `clipboardFiles` 的同一取法），并挑出其中被条目 API
-     * 报成目录的成员 —— 网关只能传单个文件，文件夹一律丢在本地。
+     * 剪贴板里的文件，按剪贴板顺序（原生 `clipboardFiles` 的同一取法）。被条目 API 报成目录的成员
+     * 直接丢掉 —— 网关只传单个文件，文件夹没有落点。
      * @param transfer - 一次粘贴事件的 clipboardData
-     * @returns `files` 是能当附件粘贴的 File，`folders` 是被挡下的目录个数
+     * @returns 能当附件粘贴的 File 列表
      */
     function clipboardFilesOf(transfer) {
-      if (transfer === null || transfer === undefined) return { files: [], folders: 0 }
+      if (transfer === null || transfer === undefined) return []
       const files = []
-      let folders = 0
       for (const item of transfer.items ?? []) {
         if (item.kind !== 'file') continue
         const file = typeof item.getAsFile === 'function' ? item.getAsFile() : null
@@ -7696,13 +7692,10 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         const entryOf = typeof item.webkitGetAsEntry === 'function'
           ? () => item.webkitGetAsEntry()
           : typeof item.getAsEntry === 'function' ? () => item.getAsEntry() : null
-        if (entryOf !== null && entryOf()?.isDirectory === true) {
-          folders += 1
-          continue
-        }
+        if (entryOf !== null && entryOf()?.isDirectory === true) continue
         files.push(file)
       }
-      return { files, folders }
+      return files
     }
 
     /** RPC 信封校验：对端说 ok 才算成功，否则按对端文案抛错；返回值用 `.value` 取。 */
