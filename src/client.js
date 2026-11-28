@@ -5984,7 +5984,7 @@ const markdownLabels = {
             renderStagedAttachments(),
             pendingCommand === null
               ? h('textarea', inputProps(styles.composerInput, '发消息或创建任务'))
-              : h('div', { style: { position: 'relative' } },
+              : h('div', { style: { position: 'relative', width: '100%', minWidth: 0 } },
                   h('span', {
                     style: { ...styles.commandToken, width: `${pendingCommand.label.length * 15 + 6}px` },
                   }, pendingCommand.label),
@@ -5996,8 +5996,10 @@ const markdownLabels = {
                         style: { ...styles.commandHint, paddingLeft: `${pendingCommand.label.length * 15 + 16}px` },
                       }, pendingCommand.hint)
                     : null,
+                  /* 原生 chip 是正文里的一个内联原子：首行从 chip 右侧起，折行回到正文左边缘。
+                     这里用 text-indent 表达同一件事（首行缩进 = chip 占位，后续行不缩进）。 */
                   h('textarea', inputProps(
-                    { ...styles.composerInput, paddingLeft: `${pendingCommand.label.length * 15 + 16}px` },
+                    { ...styles.composerInput, width: '100%', textIndent: `${pendingCommand.label.length * 15 + 2}px` },
                     '',
                   )),
                 ),
