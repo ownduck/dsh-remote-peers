@@ -1060,6 +1060,8 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       /** 对端工作区基线：分组用它的 title/path/sessionIds。 */
       const [workspaces, setWorkspaces] = useState([])
       const [archivedIds, setArchivedIds] = useState([])
+      /** 置顶集合（原生 `WorkspaceBaseline.pinnedSessionIds`，最近的在前）。 */
+      const [pinnedIds, setPinnedIds] = useState([])
       /** 会话列表的视图选项：分组方式 `workspace`（按工作区）| `tree`（按工作区树）| `list`（单列表）。 */
       const [groupMode, setGroupMode] = useState('workspace')
       /** 筛选会话：`hide` 隐藏已归档（默认）| `all` 全部对话 | `only` 仅显示已归档。 */
@@ -1538,6 +1540,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         const applyBaseline = (value) => {
           setWorkspaces(Array.isArray(value?.items) ? value.items : [])
           setArchivedIds(Array.isArray(value?.archivedSessionIds) ? value.archivedSessionIds : [])
+          setPinnedIds(Array.isArray(value?.pinnedSessionIds) ? value.pinnedSessionIds : [])
         }
         void openSse(controller, url, (frame) => {
           switch (frame?.type) {
@@ -1564,6 +1567,9 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
               break
             case 'archived':
               setArchivedIds(Array.isArray(frame.archivedSessionIds) ? frame.archivedSessionIds : [])
+              break
+            case 'pinned':
+              setPinnedIds(Array.isArray(frame.pinnedSessionIds) ? frame.pinnedSessionIds : [])
               break
             default:
               break
@@ -2413,6 +2419,28 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
           setRenaming(false)
         }
       }, [activePeer, call, renameAsk, renameDraft, renaming])
+
+      /**
+       * 会话两种集合状态的切换（原生 `PinSession.tsx` / `ArchiveSession.tsx` 的按钮行为）：
+       * 调 `workspace/pinSession|unpinSession|archiveSession|unarchiveSession`，回包是完整集合，整体替换即可。
+       */
+      const toggleSessionFlag = useCallback(async (method, field, sessionId) => {
+        try {
+          const result = await call('proxy', {
+            id: activePeer,
+            method,
+            payload: { args: { request: { sessionId } } },
+          })
+          const envelope = envelopeOf(result, '节点没能更新会话状态')
+          const next = envelope.value?.[field]
+          if (Array.isArray(next)) {
+            if (field === 'pinnedSessionIds') setPinnedIds(next)
+            else setArchivedIds(next)
+          }
+        } catch (failure) {
+          setError(errorText(failure))
+        }
+      }, [activePeer, call])
 
       /**
        * 执行一条斜杠命令（走宿主 `commands/execute`，与原生 composer 一致）。
@@ -3373,13 +3401,47 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         )
       }
 
-      /** 会话行：缩进到文件层级，右侧相对时间；整行可点开会话。 */
+      /**
+       * 会话行：缩进到文件层级；常态右侧相对时间，hover 换成「归档 + 置顶」两枚图标钮
+       * （原生 `ArchiveSessionRowButton` order 100 在前、`PinSessionRowButton` order 200 在后；
+       * 置顶过的行即使不 hover 也保留置顶钮，图标转实心）。
+       */
       function renderTreeSession(session, depth, note) {
-        return treeRowShell(`s:${session.sessionId}`, depth,
+        const key = `s:${session.sessionId}`
+        const hovered = sessionTreeHover === key
+        const pinned = pinnedIds.map(String).includes(String(session.sessionId))
+        const archived = archivedIds.map(String).includes(String(session.sessionId))
+        const iconButton = (id, label, glyph, onClick) => h('button', {
+          key: id,
+          type: 'button',
+          'aria-label': label,
+          style: styles.sessionTreeAction,
+          onMouseEnter: (event) => {
+            event.currentTarget.style.color = 'var(--dsw-alias-label-primary, inherit)'
+            showHint(`${id}:${key}`, label, event)
+          },
+          onMouseLeave: (event) => {
+            event.currentTarget.style.color = ''
+            hideHint(`${id}:${key}`)
+          },
+          onClick: (event) => {
+            event.stopPropagation()
+            hideHint(`${id}:${key}`)
+            onClick()
+          },
+        }, glyph)
+        const actions = hovered || pinned
+          ? h('div', { key: 'actions', style: styles.sessionTreeActions },
+              iconButton('archive', archived ? '取消归档' : '归档会话', archiveGlyph(14),
+                () => void toggleSessionFlag(archived ? 'workspace/unarchiveSession' : 'workspace/archiveSession', 'archivedSessionIds', session.sessionId)),
+              archived ? null : iconButton('pin', pinned ? '取消置顶' : '置顶会话', pinGlyph(14, pinned),
+                () => void toggleSessionFlag(pinned ? 'workspace/unpinSession' : 'workspace/pinSession', 'pinnedSessionIds', session.sessionId)))
+          : null
+        return treeRowShell(key, depth,
           [
             h('span', { key: 'label', style: styles.sessionTreeLabel }, sessionTitle(session)),
             note === '' ? null : h('span', { key: 'note', style: styles.sessionTreeMeta }, note),
-            h('span', { key: 'time', style: styles.sessionTreeTime }, relativeTimeText(session.updatedAt)),
+            actions ?? h('span', { key: 'time', style: styles.sessionTreeTime }, relativeTimeText(session.updatedAt)),
           ],
           () => void openRemoteSession(activePeer, session.sessionId),
           `${sessionTitle(session)} · ${session.sessionId} · ${session.cwd ?? ''}`,
@@ -3392,6 +3454,12 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
           const stamp = typeof row.updatedAt === 'number' ? row.updatedAt : Date.parse(String(row.updatedAt ?? ''))
           return Number.isFinite(stamp) && stamp > newest ? stamp : newest
         }, 0)
+      }
+
+      /** 置顶次序：命中的按下标排前（原生 `sectionMembers` 把 pinned 放在其余之前）。 */
+      function pinRankOf(session) {
+        const index = pinnedIds.map(String).indexOf(String(session.sessionId))
+        return index < 0 ? Number.MAX_SAFE_INTEGER : index
       }
 
       /** 会话最近时间（数字或 ISO 都认）。 */
@@ -3415,8 +3483,8 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
           // 只匹配会话名称（原生「搜索会话名称」）：带上 cwd 会把路径里凑巧含关键词的会话也搜出来
           return sessionTitleOf(session.sessionId).toLowerCase().includes(keyword)
         })
-        // 排序固定按最近更新（视图选项不再提供排序入口）。
-        list.sort((left, right) => stampOf(right) - stampOf(left))
+        // 排序：置顶的在前（按置顶次序），其余固定按最近更新（视图选项不再提供排序入口）。
+        list.sort((left, right) => pinRankOf(left) - pinRankOf(right) || stampOf(right) - stampOf(left))
         return { list: [...list], archivedSet }
       }
 
@@ -3488,6 +3556,8 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
               .map((id) => byId.get(id))
               .filter((session) => session !== undefined)
             for (const row of rows) claimed.add(row.sessionId)
+            // 组内顺序：置顶的在前，其余沿用工作区给的顺序
+            rows.sort((left, right) => pinRankOf(left) - pinRankOf(right))
             return { key: `ws:${workspace.workspaceId}`, workspaceId: String(workspace.workspaceId), title: String(workspace.title ?? workspace.path ?? '未命名工作区'), rows }
           })
           // 原生 groupByWorkspace：除「仅看已归档」时无成员跳过外，每个工作区都出一行（空工作区照样显示）
@@ -6129,8 +6199,28 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
           h('path', { d: 'M7.7849 8.23878L13.888 2.13574', fill: 'none', stroke: 'currentColor', strokeWidth: 1 }))
       }
 
-      /** 「新会话」：原生 `IconNewChatOutlineRegular` 的原路径（气泡 + 十字），14px、1px 描边。 */
-      function newChatGlyph(size = 14) {
+      /** 会话行「归档」：原生 `IconArchiveOutlineRegular`（归档箱），14px、1px 描边。 */
+      function archiveGlyph(size = 14) {
+        const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1 }
+        return h('svg', { width: size, height: size, viewBox: '0 0 16 16', style: { flex: 'none', display: 'block', color: 'inherit' } },
+          h('path', { d: 'M13.5 2.5H2.5C1.94772 2.5 1.5 2.94772 1.5 3.5V4.5C1.5 5.05228 1.94772 5.5 2.5 5.5H13.5C14.0523 5.5 14.5 5.05228 14.5 4.5V3.5C14.5 2.94772 14.0523 2.5 13.5 2.5Z', ...stroke }),
+          h('path', { d: 'M2.5 5.5V13.5C2.5 13.7652 2.60536 14.0196 2.79289 14.2071C2.98043 14.3946 3.23478 14.5 3.5 14.5H12.5C12.7652 14.5 13.0196 14.3946 13.2071 14.2071C13.3946 14.0196 13.5 13.7652 13.5 13.5V5.5', ...stroke }),
+          h('path', { d: 'M6.5 9.5H9.5', ...stroke }))
+      }
+
+      /** 「置顶」：原生 `IconPinOutlineRegular`（空心图钉）；`filled` 用 `IconPinFillRegular` 的实心路径。 */
+      function pinGlyph(size = 14, filled = false) {
+        const body = 'M9.96976 1.70572L13.1554 3.93629L10.9019 8.12317L11.5158 11.605L10.7192 12.7427L2.52767 7.00693L3.3243 5.86922L6.80612 5.25528L9.96976 1.70572Z'
+        const pin = 'M6.05285 9.47511C6.27284 9.16094 6.70586 9.08458 7.02003 9.30457C7.3342 9.52455 7.41055 9.95757 7.19057 10.2717L3.98587 14.4708L3.21223 13.9291L6.05285 9.47511Z'
+        return h('svg', { width: size, height: size, viewBox: '0 0 16 16', style: { flex: 'none', display: 'block', color: 'inherit' } },
+          filled
+            ? [h('path', { key: 'b', d: body, fill: 'currentColor', stroke: 'currentColor', strokeLinejoin: 'round' }),
+                h('path', { key: 'p', d: pin, fill: 'currentColor' })]
+            : [h('path', { key: 'b', d: body, fill: 'none', stroke: 'currentColor', strokeWidth: 1, strokeLinejoin: 'round' }),
+                h('path', { key: 'p', d: pin, fill: 'currentColor' })])
+      }
+
+      /** 「新会话」：原生 `IconNewChatOutlineRegular` 的原路径（气泡 + 十字），14px、1px 描边。 */      function newChatGlyph(size = 14) {
         const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1, strokeLinecap: 'round', strokeLinejoin: 'round' }
         return h('svg', { width: size, height: size, viewBox: '0 0 16 16', style: { flex: 'none', display: 'block', color: 'inherit' } },
           h('path', { d: 'M2.37091 11.2501C1.58745 9.89288 1.32067 8.29835 1.61969 6.76006C1.91872 5.22177 2.76342 3.8433 3.99826 2.87846C5.2331 1.91362 6.77494 1.42737 8.33988 1.50925C9.90482 1.59113 11.3875 2.23562 12.5149 3.32406C13.6425 4.41269 14.3387 5.87206 14.4754 7.4334C14.612 8.99474 14.18 10.5529 13.2587 11.8209C12.3375 13.0888 10.9891 13.9813 9.46194 14.3337C8.18691 14.628 6.85895 14.5294 5.64989 14.0605C5.1712 13.8748 4.76962 13.4932 4.26534 13.3967C3.67413 13.2835 2.95257 13.5598 2.03794 14.3337', ...stroke }),
