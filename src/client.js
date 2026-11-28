@@ -2186,7 +2186,7 @@ const markdownLabels = {
         STARTING.delete(key)
         notifyDownloads()
         void call('download/cancel', { id: activePeer, path }).catch(() => {})
-        notice('已取消这次下载', true)
+        // 不弹提示：取消是这一格自己点的，状态回到「下载」已经说明结果。
       }, [activePeer, call])
 
       /**
