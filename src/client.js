@@ -1614,6 +1614,17 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         }
       }, [call, closeStream, openEvents, closeEvents, openWorkspaceStream, closeWorkspaceStream])
 
+      /** 只刷新会话清单（不动流、不动选中态）：新建/首条消息之后标题与 blank 才会更新。 */
+      const refreshSessions = useCallback(async (peerId) => {
+        try {
+          const result = await call('proxy', { id: peerId, method: 'session/list', payload: { args: { _request: {} } } })
+          const envelope = envelopeOf(result, '对端返回失败')
+          setSessions(envelope.value?.items ?? [])
+        } catch (failure) {
+          setError(errorText(failure))
+        }
+      }, [call])
+
       /** 本轮进行中时每秒重绘一次，让「用时 N 秒」跟着走。 */
       useEffect(() => {
         if (turnStartedAt === 0) return
@@ -2469,6 +2480,8 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
           setPromptText('')
           resetComposerHeight()
           setError('')
+          // 新会话的首条消息会把 blank 变成 false 并生成标题：清单立刻刷一次
+          void refreshSessions(peerId)
           return true
         } catch (failure) {
           setError(errorText(failure))
@@ -2477,7 +2490,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         } finally {
           setSending(false)
         }
-      }, [call, runCommand])
+      }, [call, runCommand, refreshSessions])
 
       /**
        * 附件上行走本机网关的二进制作业：`File` 自己就是请求体，网关原样流给节点的
@@ -3908,7 +3921,16 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
                       event.currentTarget.style.borderColor = 'transparent'
                       event.currentTarget.style.color = 'var(--dsw-alias-label-secondary, #6f7377)'
                     },
-                    onClick: () => { closeStream(); setOpenSession(null); setMessages([]) },
+                    onClick: () => {
+                      closeStream()
+                      setOpenSession(null)
+                      setMessages([])
+                      // 回到列表时重读清单 + 工作区基线，刚建的会话才带得上新标题与成员关系
+                      if (activePeer !== '') {
+                        void refreshSessions(activePeer)
+                        openWorkspaceStream(activePeer)
+                      }
+                    },
                   }, backArrowGlyph(16)),
                   workspaceCrumb === null ? null : h('button', {
                     key: 'crumb-workspace',
