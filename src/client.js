@@ -5908,6 +5908,12 @@ const markdownLabels = {
         return () => clearTimeout(timer)
       }, [openSession, activePeer])
 
+      /* 目录没取到过就补一次：权限 chip 只在拿到目录后才有档位可显示（原生同样依赖目录）。 */
+      useEffect(() => {
+        if (activePeer === '' || permissionOptions.length > 0) return
+        void loadPermissionCatalog(activePeer)
+      }, [activePeer, permissionOptions.length, loadPermissionCatalog])
+
       /**
        * 待发附件 —— 图片在原生 `ComposerAttachments.rail` 里是 64×64 缩略图；
        * 其余文件按原生 `ReferenceChip` 的口径排在下面一行蓝字 chip 里（不是文件卡）。
