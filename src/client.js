@@ -691,6 +691,24 @@ const markdownLabels = {
         return () => { observer.disconnect() }
       }, [])
       const followRef = useRef(true)
+      /** 最近一次内容变高的时刻（ms）：用来区分「内容长高把滚动位置挤走」和「用户自己上翻」。 */
+      const growAtRef = useRef(0)
+      /**
+       * 跟随尾部时，内容一变高就把滚动条压回最底：宿主 Markdown 延迟排版、图片载入、
+       * 过程行收起展开都会在 rAF 之后才改变高度，只在消息变化时补一次 rAF 跟不上。
+       */
+      useEffect(() => {
+        const column = columnRef.current
+        const body = bodyRef.current
+        if (column === null || body === null || typeof ResizeObserver === 'undefined') return
+        const observer = new ResizeObserver(() => {
+          if (!followRef.current) return
+          growAtRef.current = Date.now()
+          body.scrollTop = body.scrollHeight
+        })
+        observer.observe(column)
+        return () => { observer.disconnect() }
+      }, [])
       const [showToBottom, setShowToBottom] = useState(false)
       const [toBottomHover, setToBottomHover] = useState(false)
       /** turn → present 文件清单，实时流里凑到 turn/end 才落卡片。 */
@@ -6232,6 +6250,12 @@ const markdownLabels = {
         setRailPreview(null)
         const distance = element.scrollHeight - element.scrollTop - element.clientHeight
         const following = distance < 40
+        // 内容刚长高时浏览器滚动锚定会挪 scrollTop，这不算用户上翻：补一次沉底，别把跟随关掉。
+        if (!following && followRef.current && Date.now() - growAtRef.current < 400) {
+          element.scrollTop = element.scrollHeight
+          setShowToBottom(false)
+          return
+        }
         followRef.current = following
         setShowToBottom(!following)
         // 逼近窗口顶部就向前翻一页（原生 scroll-to-top 自动 prepend）。
