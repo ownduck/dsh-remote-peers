@@ -767,8 +767,23 @@ const markdownLabels = {
       const turnStartsRef = useRef(new Map())
       /** 「+」添加菜单：文件 / 目标 / 计划 / 压缩 / 下载日志。 */
       const [plusOpen, setPlusOpen] = useState(false)
-      /** 待插入的指令（目标、计划）：显示蓝色指令名 + 输入提示。 */
-      const [pendingCommand, setPendingCommand] = useState(null)
+      /** 待插入的指令（目标、计划）按会话分开存：原生 claim 属于该会话的草稿，切会话各看各的。 */
+      const [pendingCommandBySession, setPendingCommandBySession] = useState({})
+      const pendingCommand = pendingCommandBySession[`${activePeer}:${openSession}`] ?? null
+      /** 写入某个会话的 claim；不传 session 就写当前会话（发送/取消只动自己那条）。 */
+      function setPendingCommandFor(peerId, sessionId, value) {
+        const key = `${peerId}:${sessionId}`
+        setPendingCommandBySession((previous) => {
+          if (value === null) {
+            if (previous[key] === undefined) return previous
+            const next = { ...previous }
+            delete next[key]
+            return next
+          }
+          return { ...previous, [key]: value }
+        })
+      }
+      function setPendingCommand(value) { setPendingCommandFor(activePeer, openSession, value) }
       /** 待发附件：图片是缩略图草稿（原生 image draft），其余是文件卡 —— 选中即开始跨端上传。 */
       const [pendingFiles, setPendingFiles] = useState([])
       /** 导出开始的提示弹窗。 */
@@ -1828,7 +1843,8 @@ const markdownLabels = {
           await runCommand(peerId, sessionId, line, attachments)
           setPromptText('')
           resetComposerHeight()
-          setPendingCommand(null)
+          /* 只撤这条会话的 claim（发送发生在 peerId/sessionId，未必是当前打开的那条）。 */
+          setPendingCommandFor(peerId, sessionId, null)
           return true
         }
         setSending(true)
