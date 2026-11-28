@@ -242,11 +242,14 @@ const markdownLabels = {
     /** 面板宽度约定：与 main 列一致，自身负责滚动。 */
 
     /** 面板组件：所有数据经本机 Host 的 /remote-peers 通道取得。 */
+    /** 类组件基类：宿主 react 一定有 `Component`，探针桩可能没有，缺就退化成最小基类。 */
+    const ComponentBase = react.Component ?? class { constructor(props) { this.props = props; this.state = null } }
+
     /**
      * 面板的错误边界：渲染抛异常时原生只会留一块空白，这里换成可读的错误卡（含消息与首行栈），
      * 同时把异常经 Host 的 `diag` 端点写进 stateDir/diag.log（渲染器没有控制台可看）。
      */
-    class PanelBoundary extends react.Component {
+    class PanelBoundary extends ComponentBase {
       static isReactComponent = true
 
       static getDerivedStateFromError(failure) {
@@ -263,7 +266,7 @@ const markdownLabels = {
       }
 
       render() {
-        if (this.state.failure === null) return this.props.children
+        if (this.state.failure === null) return this.props?.children
         const failure = this.state.failure
         return h('div', { style: { padding: 16, fontFamily: 'inherit', fontSize: 13, color: T.pri, whiteSpace: 'pre-wrap' } },
           h('div', { style: { fontWeight: 600, marginBottom: 8 } }, '远程端面板渲染失败'),
