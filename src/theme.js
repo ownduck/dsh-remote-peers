@@ -112,6 +112,8 @@ export const styles = {
   thinkIconIdle: { display: 'inline-flex', transition: 'opacity 100ms ease' },
   thinkChevron: { position: 'absolute', inset: 0, margin: 'auto', opacity: 0, transition: 'opacity 100ms ease', display: 'block' },
   thinkTitle: { flex: 'none', fontSize: 13, lineHeight: '24px', fontWeight: 400, color: 'inherit' },
+  /** 运行中的思考标题（原生 `.runningText`：12px、深潜蓝、等宽数字）。 */
+  thinkTitleRunning: { flex: 'none', fontSize: 12, lineHeight: '22px', fontWeight: 400, color: 'var(--dsw-alias-label-deep-diving, #4a63d8)', fontVariantNumeric: 'tabular-nums' },
   thinkSeparator: { flex: 'none', width: 2, height: 2, margin: '0 8px', borderRadius: 1, background: 'var(--dsw-alias-label-caption, #b9bec8)' },
   thinkSummary: { minWidth: 0, overflow: 'hidden', flex: '1 1 auto', fontSize: 13, lineHeight: '20px', whiteSpace: 'nowrap', color: 'inherit' },
   /** 流式中：右端 48px 渐隐、不省略（原生 `.summary[data-streaming]`）。 */

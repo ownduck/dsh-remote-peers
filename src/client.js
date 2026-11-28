@@ -3,10 +3,11 @@ const react = require('react')
 import { SCROLL_SKIN, T, styles } from './theme.js'
 import { copyGlyph, checkGlyph, databaseGlyph, gaugeGlyph, contextGlyph, downloadGlyph, openInAppGlyph, folderGlyph, navFolderGlyph, caretDownGlyph, refreshGlyph, fullscreenGlyph, exitFullscreenGlyph, collapseGlyph, caretRightGlyph, triangleFillGlyph, renameGlyph, pinGlyph, newChatGlyph, searchGlyph, slidersGlyph, listGlyph, eyeOffGlyph, chatGlyph, archiveGlyph, backArrowGlyph, fileGlyph, closeGlyph, warningGlyph, retryGlyph, sendGlyph, spinnerGlyph, sendingGlyph, toBottomGlyph, plusGlyph } from './icons.js'
 import { diagNote, codeLanguageOf, isImagePath, PdfPreview, ImagePreview, ExcelPreview, renderPreviewLoading, formatBytes, renderCsvBody, previewModeOf, extOf } from './preview.js'
-import { modelNameOf, permissionLabel, permissionOf, presetNameOf, selectionOf, metricsOf, effortOf, processToolLabelOf, processToolKind, processKindLabelOf, processToolSummary, oneLine, speedText, cacheHitText, formatTokens, formatExactTokens, formatDurationCompact } from './conversation.js'
+import { modelNameOf, permissionLabel, permissionOf, presetNameOf, selectionOf, metricsOf, effortOf, processToolLabelOf, processToolKind, processKindLabelOf, processToolSummary, processLiveLabelOf, processLiveDetailOf, oneLine, speedText, cacheHitText, formatTokens, formatExactTokens, formatDurationCompact } from './conversation.js'
 /** 第二层逐行左侧图标的原生 SVG 内联（ui-primitives artwork 的 1px regular 版，14px 显示）。 */
 const PROCESS_ROW_ICONS = {
   think: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke-width="1"><path d="M10.2854 5.71481C12.9673 8.39663 14.1182 11.5938 12.8562 12.8559C11.5942 14.1179 8.39706 12.9669 5.71518 10.2851C3.03333 7.60323 1.88236 4.40608 3.14441 3.14403C4.40644 1.882 7.6036 3.03297 10.2854 5.71481Z" stroke="currentColor"></path><path d="M10.2854 10.2851C7.6036 12.9669 4.40644 14.1179 3.14441 12.8559C1.88236 11.5938 3.03333 8.39663 5.71518 5.71481C8.39706 3.03297 11.5942 1.882 12.8562 3.14403C14.1182 4.40608 12.9673 7.60323 10.2854 10.2851Z" stroke="currentColor"></path><path d="M8.86291 8.0002C8.86291 8.47549 8.47762 8.86087 8.00224 8.86087C7.52694 8.86087 7.1416 8.47549 7.1416 8.0002C7.1416 7.52485 7.52694 7.13953 8.00224 7.13953C8.47762 7.13953 8.86291 7.52485 8.86291 8.0002Z" fill="currentColor"></path></svg>',
+  whale: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke-width="1"><path d="M8.844 13.742C8.967 12.328 8.45 10.4 8.45 9.65C8.45 8.94 8.88 8.43 9.6 8.43C11.285 8.43 12.106 8.281 12.685 8.104C13.71 7.791 14.585 6.768 15.055 5.945C15.137 5.803 14.99 5.641 14.829 5.671C13.829 5.86 12.828 5.376 11.827 4.978C10.659 4.514 9.491 4.707 8.935 4.876C8.805 4.915 8.658 4.819 8.636 4.686C8.468 3.643 7.405 2.615 5.498 2.238C4.54 2.048 3.748 1.574 3.347 1.202C3.252 1.113 3.088 1.125 3.03 1.242C2.628 2.059 2.168 3.82 5.248 6.115C5.82 6.494 6.31 6.785 6.574 7.637C6.72 8.104 6.157 9.168 6.061 9.368C5.157 11.27 5.089 12.19 4.926 13.742" stroke="currentColor"></path></svg>',
   commands: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke-width="1"><path d="M3 4L7 8L3 12" stroke="currentColor"></path><path d="M9 12H13" stroke="currentColor"></path></svg>',
   browse: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke-width="1"><path d="M4.9375 5.90295H11.0625" stroke="currentColor"></path><path d="M4.9375 9.02991H8.27841" stroke="currentColor"></path><path d="M12.5 1.32617C13.3039 1.32617 14 1.95171 14 2.77637V13.2246C13.9996 14.0489 13.3036 14.6738 12.5 14.6738H3.5C2.69637 14.6738 2.00042 14.0489 2 13.2246V2.77637C2 1.95171 2.69613 1.32617 3.5 1.32617H12.5ZM3.5 2.32617C3.1993 2.32617 3 2.55186 3 2.77637V13.2246C3.00044 13.4489 3.19963 13.6738 3.5 13.6738H12.5C12.8004 13.6738 12.9996 13.4489 13 13.2246V2.77637C13 2.55186 12.8007 2.32617 12.5 2.32617H3.5Z" fill="currentColor"></path></svg>',
   search: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke-width="1"><path d="M6.58727 11.8586C9.55061 11.8586 11.9529 9.45637 11.9529 6.49304C11.9529 3.5297 9.55061 1.12744 6.58727 1.12744C3.62394 1.12744 1.22168 3.5297 1.22168 6.49304C1.22168 9.45637 3.62394 11.8586 6.58727 11.8586Z" stroke="currentColor"></path><path d="M10.2991 10.3933L14.7783 14.8725" stroke="currentColor"></path></svg>',
@@ -2410,41 +2411,33 @@ const markdownLabels = {
           ))
       }
 
-      /**
-       * 复刻原生 `ReasoningRow`：24px 一行「思考」，折叠态给首行摘要素描，
-       * 流式中取最近一个完整段落的首行、右侧渐隐 + shimmer；点开看完整思考正文。
-       */
-      /**
-       * 本轮进行中的第一行状态：未推进时是「正在分析请求」，一旦有内容/工具/思考就变成
-       * 「已完成分析」（复刻本体的请求分析行 —— 分析阶段收尾，后面的步骤行跟着往上长）。
-       * 对端在思考阶段本端原先完全没有反馈，这两行给出「已经收到、正在处理」的即时信号。
-       */
-      function renderLiveStatusRow() {
-        if (turnStartedAt === 0) return null
-        const advanced = liveText !== '' || reasoningDisplayText(liveReasoning).trim() !== '' || pendingToolOf() !== null
-        return h('div', { style: styles.liveStatusRow, 'data-rp-live-status': '' },
-          h('span', { style: styles.liveStatusIcon },
-            advanced
-              ? h('svg', { width: 13, height: 13, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.1, strokeLinecap: 'round' },
-                  h('rect', { x: 2.6, y: 2.6, width: 10.8, height: 10.8, rx: 1.2 }),
-                  h('path', { d: 'M6.2 6.2 9.8 9.8M9.8 6.2 6.2 9.8' }))
-              : spinnerGlyph(13)),
-          h('span', null, advanced ? '已完成分析' : '正在分析请求'),
-        )
+      /** 活动分类 → 过程行图标（原生 `PROCESS_ICONS` 的对应关系）。 */
+      function processIconKeyOf(cat) {
+        if (cat === 'read' || cat === 'readImage' || cat === 'webFetch') return 'browse'
+        if (cat === 'write') return 'edit'
+        if (cat === 'webSearch') return 'globe'
+        if (cat === 'thinking') return 'think'
+        return PROCESS_ROW_ICONS[cat] === undefined ? 'tools' : cat
       }
 
       /**
-       * 进行中的工具行：`正在调用工具 · <工具名>`。对端已经发出 `tool/call`、还没结算
-       * `tool/result` 的那一步就是「正在跑」的那一步，复刻本体这一行的转圈图标。
+       * 复刻原生 `ProcessGroupHeader`（运行中那一行）：一个图标 + 一条标题。
+       * 有在跑的工具就按分类写「正在运行命令 · <任务详情>」；没有就写「正在分析请求 · <推理首行>」。
+       * 原生只有这一行 —— 不再另起「已完成分析」和「正在调用工具 · 工具名」两行。
        */
-      function renderLiveToolRow() {
+      function renderLiveProcessRow() {
+        if (turnStartedAt === 0) return null
         const pending = pendingToolOf()
-        if (pending === null) return null
-        const name = typeof pending.data?.name === 'string' ? pending.data.name : ''
-        return h('div', { key: 'tool', style: styles.liveStatusRow, 'data-rp-live-tool': name },
-          h('span', { style: styles.liveStatusIcon }, spinnerGlyph(13)),
+        const name = pending === null ? '' : (typeof pending.data?.name === 'string' ? pending.data.name : '')
+        const cat = pending === null ? 'thinking' : processToolKind(name)
+        const detail = pending === null
+          ? oneLine(latestParagraphFirstLine(reasoningDisplayText(liveReasoning)).replaceAll('**', ''))
+          : processLiveDetailOf(pending)
+        const label = pending === null ? '正在分析请求' : processLiveLabelOf(cat)
+        return h('div', { style: styles.liveStatusRow, 'data-rp-live-status': cat },
+          h('span', { style: styles.liveStatusIcon, 'data-rp-live-icon': cat, dangerouslySetInnerHTML: { __html: PROCESS_ROW_ICONS[processIconKeyOf(cat)] } }),
           h('span', { style: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
-            name === '' ? '正在调用工具' : `正在调用工具 · ${name}`),
+            detail === '' ? label : `${label} · ${detail}`),
         )
       }
 
@@ -2500,11 +2493,11 @@ const markdownLabels = {
               ? h('svg', { width: 14, height: 14, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1 },
                   h('path', { d: 'M3 10.5 8 5.5 13 10.5' }))
               : [
-                  h('span', { key: 'icon', style: styles.thinkIconIdle, 'data-rp-think-icon': '', dangerouslySetInnerHTML: { __html: PROCESS_ROW_ICONS.think } }),
+                  h('span', { key: 'icon', style: styles.thinkIconIdle, 'data-rp-think-icon': active ? 'whale' : 'think', dangerouslySetInnerHTML: { __html: PROCESS_ROW_ICONS[active ? 'whale' : 'think'] } }),
                   h('svg', { key: 'chevron', 'data-rp-think-chevron': '', style: styles.thinkChevron, width: 14, height: 14, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1 },
                     h('path', { d: 'M3 5.5 8 10.5 13 5.5' })),
                 ]),
-          h('span', { style: styles.thinkTitle }, active ? `正在思考，用时 ${formatRunDuration(Math.max(1000, Date.now() - turnStartedAt))}…` : '思考'),
+          h('span', { style: active ? styles.thinkTitleRunning : styles.thinkTitle }, active ? `正在思考，用时 ${formatRunDuration(Math.max(1000, Date.now() - turnStartedAt))} ···` : '思考'),
           active || open || summary === '' ? null : h('span', { key: 'dot', style: styles.thinkSeparator }),
           active || open || summary === '' ? null : h('span', { key: 'summary', style: running ? styles.thinkSummaryStreaming : styles.thinkSummary },
             renderShimmerText(summary, running)),
@@ -3422,8 +3415,7 @@ const markdownLabels = {
                       liveReasoning === '' && liveText === '' && turnStartedAt === 0
                         ? null
                         : h('div', { style: styles.liveFlow },
-                            renderLiveStatusRow(),
-                            renderLiveToolRow(),
+                            renderLiveProcessRow(),
                             renderLiveReasoningRow(),
                             liveText === ''
                               ? null

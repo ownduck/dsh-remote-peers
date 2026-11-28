@@ -177,6 +177,51 @@ export function processToolKind(name) {
   return known[name] ?? 'tools'
 }
 
+/** 分类 → 运行中的那一行文案（原生 `message.stepProcess.*`，不带详情）。 */
+export function processLiveLabelOf(cat) {
+  const labels = {
+    read: '正在读取文件',
+    readImage: '正在读取图片',
+    search: '正在搜索代码',
+    write: '正在写入文件',
+    edit: '正在编辑文件',
+    commands: '正在运行命令',
+    code: '正在运行代码',
+    webSearch: '正在搜索网页',
+    webFetch: '正在访问网页',
+    subagents: '正在协调子智能体',
+    plan: '正在更新计划',
+    questions: '等待你的操作',
+    context: '正在分析请求',
+    tools: '正在调用工具',
+  }
+  return labels[cat] ?? '正在调用工具'
+}
+
+/** 运行中工具那一行 ` · ` 后面的详情：原生 `liveToolDetail` 的字段顺序，取第一个有文字的，压成一行 ≤160 字。 */
+export function processLiveDetailOf(event) {
+  let args = {}
+  try {
+    args = JSON.parse(event.data?.arguments ?? '{}')
+  } catch {
+    args = {}
+  }
+  const keys = [
+    'title', 'description', 'objective', 'task', 'task_name', 'name', 'question', 'questions', 'prompt', 'message',
+    'command', 'cmd', 'queries', 'query', 'pattern', 'url', 'uri', 'file_path', 'path', 'target', 'action', 'status',
+  ]
+  for (const key of keys) {
+    if (!(key in args)) continue
+    const value = args[key]
+    const text = typeof value === 'string'
+      ? value
+      : Array.isArray(value) && value.every((item) => typeof item === 'string') ? value.join(', ') : ''
+    const detail = oneLine(text)
+    if (detail !== '') return detail.length > 160 ? `${detail.slice(0, 159).trimEnd()}…` : detail
+  }
+  return ''
+}
+
 /** 分类 → 第一层分组标题（原生 `message.stepProcess.done.*` 的完整几项）。 */
 export function processKindLabelOf(cat) {
   const labels = {
