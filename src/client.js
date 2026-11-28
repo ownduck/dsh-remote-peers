@@ -1546,7 +1546,12 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
               applyBaseline(frame.value)
               break
             case 'upsert':
-              setWorkspaces((previous) => [...previous.filter((item) => item.workspaceId !== frame.workspace?.workspaceId), frame.workspace])
+              // 就地替换，保持原有顺序；只有新工作区才追加到末尾
+              setWorkspaces((previous) => {
+                const index = previous.findIndex((item) => item.workspaceId === frame.workspace?.workspaceId)
+                if (index < 0) return [...previous, frame.workspace]
+                return previous.map((item, at) => (at === index ? frame.workspace : item))
+              })
               break
             case 'remove':
               setWorkspaces((previous) => previous.filter((item) => item.workspaceId !== frame.workspaceId))
