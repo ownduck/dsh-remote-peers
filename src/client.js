@@ -3473,7 +3473,8 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
             for (const row of rows) claimed.add(row.sessionId)
             return { key: `ws:${workspace.workspaceId}`, workspaceId: String(workspace.workspaceId), title: String(workspace.title ?? workspace.path ?? '未命名工作区'), rows }
           })
-          .filter((group) => group.rows.length > 0)
+          // 原生 groupByWorkspace：除「仅看已归档」时无成员跳过外，每个工作区都出一行（空工作区照样显示）
+          .filter((group) => archiveFilter !== 'only' || group.rows.length > 0)
         const orphans = list.filter((session) => !claimed.has(session.sessionId))
         const archived = list.filter((session) => archivedSet.has(String(session.sessionId)))
 
