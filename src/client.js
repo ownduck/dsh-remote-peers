@@ -420,6 +420,8 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       sessionTreeLabel: { flex: '1 1 auto', minWidth: 0, overflow: 'hidden', fontSize: 13, lineHeight: '20px', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
       sessionTreeMeta: { flex: 'none', fontSize: 11, lineHeight: '16px', color: 'var(--dsw-alias-label-tertiary, #a6a9ae)' },
       sessionTreeTime: { flex: 'none', fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-label-tertiary, #a6a9ae)' },
+      /* 文件夹行右侧的新会话钮：原生 `.iconButton` —— 24×24 命中区、14 图标、`label-tertiary`，hover 转 `label-primary` */
+      sessionTreeAction: { flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, margin: '-4px 0 -4px 0', padding: 0, border: 0, borderRadius: 'var(--dsw-radius-xs, 4px)', background: 'transparent', color: 'var(--dsw-alias-label-tertiary, #a6a9ae)', cursor: 'pointer' },
       // ── 会话页（照原生版式：通栏正文 + 右侧用户气泡 + 药丸输入框） ──
       conversationPage: { position: 'relative', display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 },
       /** 会话页里的失败提示：原生用 toast 报告「打开失败」，这里贴底居中一条，不挡正文。 */
@@ -1051,6 +1053,8 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       /** 刚报过失败的 `<peerId>:<路径>`：任务从 Host 表里消失时据此区分「成功落盘」和「失败退场」。 */
       const failedKeysRef = useRef(new Set())
       const [sessionTreeHover, setSessionTreeHover] = useState('')
+      /** 正在为哪个工作区建新会话（工作区 id），空串表示没有在飞。 */
+      const [creatingIn, setCreatingIn] = useState('')
       /** 对端模型目录（session/modelCatalog），用于输入区右侧的模型名与切换。 */
       const [catalog, setCatalog] = useState(null)
       /** 对端 Agent 预设清单（agentPresets/list），用来把 agentPreset id 显示成名字。 */
@@ -2275,6 +2279,33 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         permissionOptions.length, presets.length, sessions])
 
       /**
+       * 在一个工作区里新建对端会话并立刻打开 —— 原生工作区行右侧的「新会话」。
+       * @param workspaceId - 对端工作区 id（`session/create` 的 `workspaceId`，与 `cwd` 互斥）
+       */
+      const createSessionIn = useCallback(async (workspaceId) => {
+        if (creatingIn !== '') return
+        setCreatingIn(workspaceId)
+        try {
+          const result = await call('proxy', {
+            id: activePeer,
+            method: 'session/create',
+            // 对端的 `/api/<method>` 直取请求体字段；`args` 是历史 `session/list` 已验证能过的同形包法，
+            // 两处都给一份，避免不同版本的节点各读一边（多出的键对方不报错）。
+            payload: { workspaceId, args: { workspaceId } },
+          })
+          const envelope = envelopeOf(result, '节点没能新建会话')
+          const sessionId = String(envelope.value?.sessionId ?? '')
+          if (sessionId === '') throw new Error('节点没有返回会话 id')
+          await loadSessions(activePeer)
+          await openRemoteSession(activePeer, sessionId)
+        } catch (failure) {
+          setError(errorText(failure))
+        } finally {
+          setCreatingIn('')
+        }
+      }, [activePeer, call, creatingIn, loadSessions, openRemoteSession])
+
+      /**
        * 执行一条斜杠命令（走宿主 `commands/execute`，与原生 composer 一致）。
        * @param peerId - 目标他端
        * @param sessionId - 对端会话
@@ -3132,29 +3163,65 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         return new Date(stamp).toLocaleDateString()
       }
 
-      /** 树行的通用外壳：缩进按层级、hover 底色、右侧列固定不挤。 */
+      /** 树行的通用外壳：缩进按层级、hover 底色、右侧列固定不挤。行本体是 div（行内还要放按钮，
+         原生这两层也是 div + role=button），键盘 Enter/Space 与点击同效。 */
       function treeRowShell(key, depth, body, onClick, title) {
-        return h('button', {
+        return h('div', {
           key,
-          type: 'button',
+          role: 'button',
+          tabIndex: 0,
           title,
+          'aria-label': title,
           style: sessionTreeHover === key ? { ...styles.sessionTreeRow, ...styles.sessionTreeRowHovered, paddingLeft: 6 + depth * 16 } : { ...styles.sessionTreeRow, paddingLeft: 6 + depth * 16 },
           onMouseEnter: () => setSessionTreeHover(key),
           onMouseLeave: () => setSessionTreeHover((current) => (current === key ? '' : current)),
           onClick,
+          onKeyDown: (event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return
+            event.preventDefault()
+            onClick()
+          },
         }, body)
       }
 
-      /** 文件夹行：chevron + 文件夹图标 + 名字 + 数量 + 右侧相对时间，点击折叠/展开。 */
-      function renderTreeFolder(key, depth, label, count, latest) {
+      /** 文件夹行：chevron + 文件夹图标 + 名字 + 数量 + 右侧相对时间，点击折叠/展开。
+          有工作区身份时（`workspaceId`）hover 把右侧时间列换成「新会话」钮 —— 原生 `.rowResting`/`.rowActions` 的互换。 */
+      function renderTreeFolder(key, depth, label, count, latest, workspaceId) {
         const open = sessionTreeOpen[key] !== false
+        const hovered = sessionTreeHover === key
+        const busy = workspaceId !== undefined && creatingIn === workspaceId
+        const actions = workspaceId === undefined || !hovered
+          ? [
+              h('span', { key: 'count', style: styles.sessionTreeMeta }, String(count)),
+              h('span', { key: 'time', style: styles.sessionTreeTime }, relativeTimeText(latest)),
+            ]
+          : [h('button', {
+              key: 'new',
+              type: 'button',
+              'aria-label': '新会话',
+              style: busy ? { ...styles.sessionTreeAction, cursor: 'default' } : styles.sessionTreeAction,
+              disabled: busy,
+              onMouseEnter: (event) => {
+                event.currentTarget.style.color = 'var(--dsw-alias-label-primary, inherit)'
+                showHint(`new:${key}`, '新会话', event)
+              },
+              onMouseLeave: (event) => {
+                event.currentTarget.style.color = ''
+                hideHint(`new:${key}`)
+              },
+              onFocus: (event) => showHint(`new:${key}`, '新会话', event),
+              onBlur: () => hideHint(`new:${key}`),
+              onClick: (event) => {
+                event.stopPropagation()
+                void createSessionIn(workspaceId)
+              },
+            }, busy ? spinnerGlyph(12) : newChatGlyph(14))]
         return treeRowShell(key, depth,
           [
             h('span', { key: 'caret', style: styles.sessionTreeCaret }, caretRightGlyph(open)),
             h('span', { key: 'icon', style: styles.sessionTreeIcon }, navFolderGlyph(open)),
             h('span', { key: 'label', style: styles.sessionTreeLabel }, label),
-            h('span', { key: 'count', style: styles.sessionTreeMeta }, String(count)),
-            h('span', { key: 'time', style: styles.sessionTreeTime }, relativeTimeText(latest)),
+            ...actions,
           ],
           () => setSessionTreeOpen((previous) => ({ ...previous, [key]: previous[key] === false })),
           label,
@@ -3274,7 +3341,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
               .map((id) => byId.get(id))
               .filter((session) => session !== undefined)
             for (const row of rows) claimed.add(row.sessionId)
-            return { key: `ws:${workspace.workspaceId}`, title: String(workspace.title ?? workspace.path ?? '未命名工作区'), rows }
+            return { key: `ws:${workspace.workspaceId}`, workspaceId: String(workspace.workspaceId), title: String(workspace.title ?? workspace.path ?? '未命名工作区'), rows }
           })
           .filter((group) => group.rows.length > 0)
         const orphans = list.filter((session) => !claimed.has(session.sessionId))
@@ -3283,7 +3350,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         /** 一层文件夹 + 其下会话行（展开时）。 */
         const folder = (group, depth, note) => {
           const open = sessionTreeOpen[group.key] !== false
-          const rows = [renderTreeFolder(group.key, depth, group.title, group.rows.length, latestOf(group.rows))]
+          const rows = [renderTreeFolder(group.key, depth, group.title, group.rows.length, latestOf(group.rows), group.workspaceId)]
           if (open) for (const session of group.rows) rows.push(renderTreeSession(session, depth + 1, typeof note === 'function' ? note(session) : (note ?? '')))
           return rows
         }
@@ -5761,6 +5828,15 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       function caretRightGlyph(open) {
         return h('svg', { width: 12, height: 12, viewBox: '0 0 12 12', style: { flex: 'none', color: 'inherit', transform: open ? 'rotate(90deg)' : undefined, transition: 'transform 120ms' } },
           h('path', { d: 'M4.5 3L7.5 6L4.5 9', fill: 'none', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round', strokeLinejoin: 'round' }))
+      }
+
+      /** 「新会话」：原生 `IconNewChatOutlineRegular` 的原路径（气泡 + 十字），14px、1px 描边。 */
+      function newChatGlyph(size = 14) {
+        const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1, strokeLinecap: 'round', strokeLinejoin: 'round' }
+        return h('svg', { width: size, height: size, viewBox: '0 0 16 16', style: { flex: 'none', display: 'block', color: 'inherit' } },
+          h('path', { d: 'M2.37091 11.2501C1.58745 9.89288 1.32067 8.29835 1.61969 6.76006C1.91872 5.22177 2.76342 3.8433 3.99826 2.87846C5.2331 1.91362 6.77494 1.42737 8.33988 1.50925C9.90482 1.59113 11.3875 2.23562 12.5149 3.32406C13.6425 4.41269 14.3387 5.87206 14.4754 7.4334C14.612 8.99474 14.18 10.5529 13.2587 11.8209C12.3375 13.0888 10.9891 13.9813 9.46194 14.3337C8.18691 14.628 6.85895 14.5294 5.64989 14.0605C5.1712 13.8748 4.76962 13.4932 4.26534 13.3967C3.67413 13.2835 2.95257 13.5598 2.03794 14.3337', ...stroke }),
+          h('path', { d: 'M8 5V11', ...stroke }),
+          h('path', { d: 'M5 8H11', ...stroke }))
       }
 
       function searchGlyph(size = 14) {
