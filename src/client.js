@@ -2558,24 +2558,28 @@ const markdownLabels = {
 
       function renderLiveReasoningRow() {
         const text = reasoningDisplayText(liveReasoning)
-        if (text.trim() === '') return null
         const running = liveText === ''
-        const active = turnStartedAt !== 0
+        // 本轮还在跑、正文还没开始流：这一拍没有推理文本也要留着「正在思考，用时 N ···」这行
+        // （原生 RunningStatus 就是轮次未结束时一直挂着，只有轮次收尾的尾部动作行会顶掉它）。
+        const active = turnStartedAt !== 0 && running
+        if (text.trim() === '' && !active) return null
+        const expandable = text.trim() !== ''
         const summary = (running ? latestParagraphFirstLine(text) : firstLineOfText(text)).replaceAll('**', '')
-        const open = liveReasoningOpen
+        const open = expandable && liveReasoningOpen
         const row = h('div', {
-          style: styles.thinkRow,
+          style: expandable ? styles.thinkRow : { ...styles.thinkRow, cursor: 'default' },
           'data-rp-think-row': '',
-          role: 'button',
-          tabIndex: 0,
-          'aria-expanded': open ? 'true' : 'false',
-          'aria-label': '思考',
+          role: expandable ? 'button' : undefined,
+          tabIndex: expandable ? 0 : undefined,
+          'aria-expanded': expandable ? (open ? 'true' : 'false') : undefined,
+          'aria-label': expandable ? '思考' : undefined,
           onKeyDown: (event) => {
+            if (!expandable) return
             if (event.key !== 'Enter' && event.key !== ' ') return
             event.preventDefault()
             setLiveReasoningOpen((value) => !value)
           },
-          onClick: () => setLiveReasoningOpen((value) => !value),
+          onClick: expandable ? () => setLiveReasoningOpen((value) => !value) : undefined,
         },
           h('span', { style: styles.thinkLeading },
             open
@@ -2583,8 +2587,8 @@ const markdownLabels = {
                   h('path', { d: 'M3 10.5 8 5.5 13 10.5' }))
               : [
                   h('span', { key: 'icon', style: styles.thinkIconIdle, 'data-rp-think-icon': 'think', dangerouslySetInnerHTML: { __html: PROCESS_ROW_ICONS.think } }),
-                  h('svg', { key: 'chevron', 'data-rp-think-chevron': '', style: styles.thinkChevron, width: 14, height: 14, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1 },
-                    h('path', { d: 'M3 5.5 8 10.5 13 5.5' })),
+                  expandable ? h('svg', { key: 'chevron', 'data-rp-think-chevron': '', style: styles.thinkChevron, width: 14, height: 14, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1 },
+                    h('path', { d: 'M3 5.5 8 10.5 13 5.5' })) : null,
                 ]),
           h('span', { style: active ? styles.thinkTitleRunning : styles.thinkTitle }, active ? `正在思考，用时 ${formatRunDuration(Math.max(1000, Date.now() - turnStartedAt))} ···` : '思考'),
           active || open || summary === '' ? null : h('span', { key: 'dot', style: styles.thinkSeparator }),
