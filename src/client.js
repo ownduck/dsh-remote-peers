@@ -3392,6 +3392,8 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
           const archived = archivedSet.has(String(session.sessionId))
           if (archiveFilter === 'hide' && archived) return false
           if (archiveFilter === 'only' && !archived) return false
+          // 原生 tree.ts：未使用过的空会话（blank）只在它自己被选中时可见
+          if (session.blank === true && String(session.sessionId) !== String(openSession)) return false
           if (keyword === '') return true
           // 只匹配会话名称（原生「搜索会话名称」）：带上 cwd 会把路径里凑巧含关键词的会话也搜出来
           return sessionTitleOf(session.sessionId).toLowerCase().includes(keyword)
@@ -3675,8 +3677,10 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       /** 会话标题：取列表里的标题投影，没有则用 sessionId。 */
       function sessionTitleOf(sessionId) {
         const item = sessions.find((session) => session.sessionId === sessionId)
+        // 原生 Rows.tsx displayTitle：blank 显示「新会话」，否则标题或「未命名」
+        if (item?.blank === true) return '新会话'
         const title = item?.projections?.values?.title
-        return typeof title === 'string' && title !== '' ? title : sessionId
+        return typeof title === 'string' && title !== '' ? title : '未命名'
       }
 
       /** 原生版式的会话页：标题栏 + 对话 tab + 消息列 + 药丸输入框。 */
@@ -3959,6 +3963,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
                   h('div', { style: styles.convBody, ref: bodyRef, onScroll: onBodyScroll, 'data-remote-peers-scroll': '' },
                     h('div', { style: { ...styles.convColumn, maxWidth: `${Math.round(contentWidth)}px` }, ref: columnRef },
                       messages.length === 0 && liveText === '' && liveReasoning === '' && turnStartedAt === 0
+                        && sessions.find((item) => item.sessionId === openSession)?.blank !== true
                         ? h('div', { style: styles.muted }, '这条会话没有可读的文本消息。')
                         : null,
                       renderHistoryEdge(),
@@ -7994,13 +7999,11 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       return { host, port }
     }
 
-    /** 会话标题取自 projections.title；没有就退回 cwd 目录名。 */
+    /** 会话标题：原生 Rows.tsx 的 displayTitle —— blank 显示「新会话」，否则标题或「未命名」。 */
     function sessionTitle(session) {
+      if (session?.blank === true) return '新会话'
       const title = session?.projections?.values?.title
-      if (typeof title === 'string' && title !== '') return title
-      const cwd = typeof session?.cwd === 'string' ? session.cwd : ''
-      const last = cwd.split(/[\\/]/).filter(Boolean).pop()
-      return last === undefined ? session?.sessionId ?? '未命名会话' : `${last}（未命名）`
+      return typeof title === 'string' && title !== '' ? title : '未命名'
     }
 
     /** 把一条 forwarded waterfall 归一成可展示、可回传的条目。 */
