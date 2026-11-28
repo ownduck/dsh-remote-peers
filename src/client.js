@@ -5960,8 +5960,8 @@ const markdownLabels = {
 
       /* 切会话（openSession/节点变化）时排一次聚焦，与原生 `[locked, sessionId, editor]` 同义。 */
       useEffect(() => {
+        diagNote(`composer effect open=${openSession === null ? 'null' : openSession} peer=${activePeer}`)
         if (openSession === null) return
-        diagNote(`composer effect ${openSession}`)
         return scheduleComposerFocus('effect')
       }, [openSession, activePeer])
 
