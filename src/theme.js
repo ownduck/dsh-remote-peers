@@ -53,6 +53,8 @@ export const SCROLL_SKIN = [
   /* 复制成功的回执：按钮底色淡入 + 轻微弹一下 */
   '@keyframes dsh-rp-copied { 0% { transform: scale(0.92); } 60% { transform: scale(1.04); }'
   + ' 100% { transform: scale(1); } }',
+  '[data-rp-command-line] textarea { text-indent: calc(var(--rp-chip-right, 14px) - 14px); }',
+  '[data-rp-command-line] [data-rp-command-hint] { padding-left: var(--rp-chip-right, 14px); }',
   '[data-rp-command-cancel] { opacity: 0; pointer-events: none; transition: opacity 100ms ease; }',
   '[data-rp-command-chip]:hover { background: var(--dsw-alias-state-business-tertiary, rgba(57,100,254,0.10)); }',
   '[data-rp-command-chip]:hover [data-rp-command-cancel] { opacity: 1; pointer-events: auto; }',
@@ -599,7 +601,8 @@ scrollbarGutter: 'stable',
     right: 0,
     top: 0,
     boxSizing: 'border-box',
-    padding: '4px 8px 0 0',
+    paddingTop: 4,
+    paddingRight: 8,
     fontFamily: 'var(--dsw-font-family, inherit)',
     fontSize: 14,
     lineHeight: '24px',
