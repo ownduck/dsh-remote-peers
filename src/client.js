@@ -2,7 +2,7 @@
 const react = require('react')
 import { SCROLL_SKIN, T, styles } from './theme.js'
 import { copyGlyph, checkGlyph, databaseGlyph, gaugeGlyph, contextGlyph, downloadGlyph, openInAppGlyph, folderGlyph, navFolderGlyph, caretDownGlyph, refreshGlyph, fullscreenGlyph, exitFullscreenGlyph, collapseGlyph, caretRightGlyph, triangleFillGlyph, renameGlyph, pinGlyph, newChatGlyph, searchGlyph, slidersGlyph, listGlyph, eyeOffGlyph, chatGlyph, archiveGlyph, backArrowGlyph, fileGlyph, closeGlyph, warningGlyph, retryGlyph, sendGlyph, spinnerGlyph, sendingGlyph, toBottomGlyph, plusGlyph } from './icons.js'
-import { assetUrlOf, diagNote, pdfjsEngine, pdfBinaryDataFactory, startPdfWorker, PdfPreview, ImagePreview, xlsxEngine, ExcelPreview, renderPreviewLoading, formatBytes, tableGrid, tableFormulaBar, renderCsvBody, previewModeOf, extOf, parseCsvRows, columnName } from './preview.js'
+import { PdfPreview, ImagePreview, ExcelPreview, renderPreviewLoading, formatBytes, renderCsvBody, previewModeOf, extOf } from './preview.js'
 import { modelNameOf, permissionLabel, permissionOf, presetNameOf, selectionOf, metricsOf, effortOf, processToolLabelOf, processToolKind, processKindLabelOf, processToolSummary, oneLine, speedText, cacheHitText, formatTokens, formatExactTokens, formatDurationCompact } from './conversation.js'
 /** 第二层逐行左侧图标的原生 SVG 内联（ui-primitives artwork 的 1px regular 版，14px 显示）。 */
 const PROCESS_ROW_ICONS = {
@@ -157,6 +157,14 @@ const PROCESS_ROW_ICONS = {
           window.removeEventListener('keydown', onKeyDown)
         }
       }, [active])
+    }
+
+    /** 菜单项/列表项的 hover 底色：进场刷一层 token，离场回透明（原生 `.menuItem:hover` 的等价写法）。 */
+    function hoverBackdrop(token) {
+      return {
+        onMouseEnter: (event) => { event.currentTarget.style.background = token },
+        onMouseLeave: (event) => { event.currentTarget.style.background = 'transparent' },
+      }
     }
 
     /** 宿主共享的 Markdown 渲染器与文件类型图标：能取到就复用原生实现。 */
@@ -2571,7 +2579,7 @@ const markdownLabels = {
                     'data-rp-anchor': '',
                     style: styles.sessionTreeAction,
                     onMouseEnter: (event) => {
-                      event.currentTarget.style.color = 'var(--dsw-alias-label-primary, inherit)'
+                      event.currentTarget.style.color = T.pri
                       showHint(`menu:${key}`, '更多', event)
                     },
                     onMouseLeave: (event) => {
@@ -2598,7 +2606,7 @@ const markdownLabels = {
                     style: busy ? { ...styles.sessionTreeAction, cursor: 'default' } : styles.sessionTreeAction,
                     disabled: busy,
                     onMouseEnter: (event) => {
-                      event.currentTarget.style.color = 'var(--dsw-alias-label-primary, inherit)'
+                      event.currentTarget.style.color = T.pri
                       showHint(`new:${key}`, '新会话', event)
                     },
                     onMouseLeave: (event) => {
@@ -2647,7 +2655,7 @@ const markdownLabels = {
           'aria-label': label,
           style: styles.sessionTreeAction,
           onMouseEnter: (event) => {
-            event.currentTarget.style.color = 'var(--dsw-alias-label-primary, inherit)'
+            event.currentTarget.style.color = T.pri
             showHint(`${id}:${key}`, label, event)
           },
           onMouseLeave: (event) => {
@@ -2805,8 +2813,8 @@ const markdownLabels = {
           style: { ...styles.sessionOverflow, paddingLeft: 8 + (depth + 1) * 16 + 22 },
           'data-row-key': `overflow:${group.key}`,
           'aria-expanded': expanded,
-          onMouseEnter: (event) => { event.currentTarget.style.color = 'var(--dsw-alias-label-secondary, #6f7377)' },
-          onMouseLeave: (event) => { event.currentTarget.style.color = 'var(--dsw-alias-label-tertiary, #a6a9ae)' },
+          onMouseEnter: (event) => { event.currentTarget.style.color = T.sec },
+          onMouseLeave: (event) => { event.currentTarget.style.color = T.ter },
           onClick: () => setSessionMarks((previous) => {
             if (expanded) {
               const next = { ...previous }
@@ -2894,7 +2902,7 @@ const markdownLabels = {
       /** 远程端主界面头部：醒目的「返回远程端列表」胶囊 + 该端标题与地址。 */
       function renderPeerPageHeader(peer) {
         const hoverOn = (event) => {
-          event.currentTarget.style.background = 'var(--dsw-alias-interactive-bg-hover, #f2f3f5)'
+          event.currentTarget.style.background = T.hover
           event.currentTarget.style.borderColor = 'var(--dsw-alias-border-l3, #d0d3d6)'
         }
         const hoverOff = (event) => {
@@ -3207,8 +3215,8 @@ const markdownLabels = {
               const hovering = item.turn === railPreview
               const tickScale = active || hovering ? (active ? 1 : 0.9) : item.loaded ? 0.6 : 0.4
               const tickColor = active
-                ? 'var(--dsw-alias-label-primary, #111)'
-                : hovering ? 'var(--dsw-alias-label-tertiary, #6b7280)' : 'var(--dsw-alias-border-l4, rgba(0,0,0,0.14))'
+                ? T.pri
+                : hovering ? T.ter : 'var(--dsw-alias-border-l4, rgba(0,0,0,0.14))'
               return h('button', {
                 key: `${index}`,
                 type: 'button',
@@ -3273,14 +3281,14 @@ const markdownLabels = {
                     title: '返回会话列表',
                     'aria-label': '返回会话列表',
                     onMouseEnter: (event) => {
-                      event.currentTarget.style.background = 'var(--dsw-alias-interactive-bg-hover, #f2f3f5)'
+                      event.currentTarget.style.background = T.hover
                       event.currentTarget.style.borderColor = 'var(--dsw-alias-border-l2, #e3e4e6)'
-                      event.currentTarget.style.color = 'var(--dsw-alias-label-primary, #1f2329)'
+                      event.currentTarget.style.color = T.pri
                     },
                     onMouseLeave: (event) => {
                       event.currentTarget.style.background = 'transparent'
                       event.currentTarget.style.borderColor = 'transparent'
-                      event.currentTarget.style.color = 'var(--dsw-alias-label-secondary, #6f7377)'
+                      event.currentTarget.style.color = T.sec
                     },
                     onClick: () => { closeStream(); setOpenSession(null); setMessages([]) },
                   }, backArrowGlyph(16)),
@@ -3290,8 +3298,7 @@ const markdownLabels = {
                     style: styles.crumbButton,
                     'data-rp-anchor': '',
                     'aria-label': `工作区 ${workspaceCrumb.title}`,
-                    onMouseEnter: (event) => { event.currentTarget.style.background = 'var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.04))' },
-                    onMouseLeave: (event) => { event.currentTarget.style.background = 'transparent' },
+                    ...hoverBackdrop(T.hover),
                     onClick: (event) => {
                       event.stopPropagation()
                       if (wsMenu !== null && wsMenu.workspaceId === workspaceCrumb.workspaceId) {
@@ -3518,8 +3525,7 @@ const markdownLabels = {
             type: 'button',
             style: styles.pathMenuItem,
             onClick: run,
-            onMouseEnter: (event) => { event.currentTarget.style.background = 'var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.04))' },
-            onMouseLeave: (event) => { event.currentTarget.style.background = 'transparent' },
+            ...hoverBackdrop(T.hover),
           },
             h('span', { style: { ...styles.menuIconSlot, color: 'var(--dsw-alias-menu-icon, #6f7377)' } }, glyph),
             h('span', { style: { flex: 1, minWidth: 0 } }, label),
@@ -3588,8 +3594,7 @@ const markdownLabels = {
                   type: 'button',
                   style: styles.ghostButton,
                   'aria-label': '关闭',
-                  onMouseEnter: (event) => { event.currentTarget.style.background = 'var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.04))' },
-                  onMouseLeave: (event) => { event.currentTarget.style.background = 'transparent' },
+                  ...hoverBackdrop(T.hover),
                   onClick: options.close,
                 }, closeGlyph(14)),
               ),
@@ -3970,7 +3975,7 @@ const markdownLabels = {
             },
             h('span', { style: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, label),
             expandable
-              ? h('svg', { width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none', style: { flex: 'none', color: 'var(--dsw-alias-label-tertiary, #8a8f99)', transform: open ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 140ms cubic-bezier(.2,.8,.2,1)' } },
+              ? h('svg', { width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none', style: { flex: 'none', color: T.ter, transform: open ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 140ms cubic-bezier(.2,.8,.2,1)' } },
                   h('path', { d: 'M4.2 6.2L8 10L11.8 6.2', stroke: 'currentColor', strokeWidth: 1.2, strokeLinecap: 'round', strokeLinejoin: 'round' }))
               : null,
             ),
@@ -3985,7 +3990,7 @@ const markdownLabels = {
                     setProcessGroupOpen((previous) => ({ ...previous, [message.turn]: !groupOpen }))
                   },
                 },
-                h('svg', { width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none', style: { flex: 'none', color: 'var(--dsw-alias-label-tertiary, #8a8f99)', transform: groupOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 140ms cubic-bezier(.2,.8,.2,1)' } },
+                h('svg', { width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none', style: { flex: 'none', color: T.ter, transform: groupOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 140ms cubic-bezier(.2,.8,.2,1)' } },
                   h('path', { d: 'M4.2 6.2L8 10L11.8 6.2', stroke: 'currentColor', strokeWidth: 1.2, strokeLinecap: 'round', strokeLinejoin: 'round' })),
                 h('span', { style: styles.processRowText }, groupTitle),
                 ),
@@ -4051,7 +4056,7 @@ const markdownLabels = {
             style: unavailable
               ? styles.msgActionIdle
               : iconHint !== null && iconHint.key === key
-                ? { ...styles.msgAction, background: 'var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.05))' }
+                ? { ...styles.msgAction, background: T.hoverStrong }
                 : styles.msgAction,
             'aria-label': label,
             'aria-disabled': unavailable ? true : undefined,
@@ -4085,7 +4090,7 @@ const markdownLabels = {
                 'data-rp-anchor': '',
                 'aria-expanded': usageDialog !== null && usageDialog.turn === usage.turn,
                 onMouseEnter: (event) => {
-                  event.currentTarget.style.background = 'var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.05))'
+                  event.currentTarget.style.background = T.hoverStrong
                 },
                 onMouseLeave: (event) => { event.currentTarget.style.background = 'transparent' },
                 onClick: (event) => {
@@ -5949,8 +5954,7 @@ const markdownLabels = {
               : h('div', { style: row.section === '指令' ? { ...styles.plusSection, marginTop: 3 } : styles.plusSection }, row.section),
             h('button', {
               style: styles.plusRow,
-              onMouseEnter: (event) => { event.currentTarget.style.background = 'var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.05))' },
-              onMouseLeave: (event) => { event.currentTarget.style.background = 'transparent' },
+              ...hoverBackdrop(T.hoverStrong),
               onClick: () => {
                 if (row.key === 'file') { setPlusOpen(false); fileInputRef.current?.click(); return }
                 if (row.key === 'goal') {
@@ -6090,8 +6094,7 @@ const markdownLabels = {
         const model = currentModelOf()
         const efforts = model?.reasoning?.efforts ?? []
         const hoverRow = {
-          onMouseEnter: (event) => { event.currentTarget.style.background = 'var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.05))' },
-          onMouseLeave: (event) => { event.currentTarget.style.background = 'transparent' },
+          ...hoverBackdrop(T.hoverStrong),
         }
         if (pickerSection === 'model') {
           return h('div', { 'data-dsh-popup': 'model', style: styles.modelMenu },
@@ -6301,8 +6304,8 @@ const markdownLabels = {
         return {
           onMouseEnter: (event) => {
             if (statDialog !== null && statDialog.kind === kind) return
-            event.currentTarget.style.background = 'var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.05))'
-            event.currentTarget.style.color = 'var(--dsw-alias-label-secondary, #5f6368)'
+            event.currentTarget.style.background = T.hoverStrong
+            event.currentTarget.style.color = T.sec
           },
           onMouseLeave: (event) => {
             if (statDialog !== null && statDialog.kind === kind) return
@@ -6485,8 +6488,7 @@ const markdownLabels = {
           values.map((value) => h('button', {
             key: value,
             style: styles.permissionRow,
-            onMouseEnter: (event) => { event.currentTarget.style.background = 'var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.05))' },
-            onMouseLeave: (event) => { event.currentTarget.style.background = 'transparent' },
+            ...hoverBackdrop(T.hoverStrong),
             disabled: permissionBusy,
             onClick: () => {
               if (value === permissionPreset) { setPermissionOpen(false); return }

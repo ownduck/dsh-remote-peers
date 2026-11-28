@@ -97,7 +97,7 @@ export function extOf(name) {
 }
 
 /** CSV：支持引号、成对引号与内嵌逗号/换行，够读导出表。 */
-export function parseCsvRows(text) {
+function parseCsvRows(text) {
   const rows = []
   let row = []
   let field = ''
@@ -127,7 +127,7 @@ export function parseCsvRows(text) {
 }
 
 /** 0→A、25→Z、26→AA。 */
-export function columnName(index) {
+function columnName(index) {
   let value = index
   let name = ''
   do {
@@ -138,7 +138,7 @@ export function columnName(index) {
 }
 
 /** 插件自带资源的取用路径：pdf.js 的 worker 与 cMap/字体/wasm 仍由宿主 asset 路由提供。 */
-export function assetUrlOf(name) {
+function assetUrlOf(name) {
   return `/api/remote-peers/asset?name=${encodeURIComponent(name)}`
 }
 
@@ -159,7 +159,7 @@ export function diagNote(note) {
  * pdfjs 引擎：构建期由 esbuild 直接打进 bundle（与主体同版本 6.3.289），运行时不再做动态导入。
  * 这里只留一条断言，避免再把「拿不到模块」的问题带进渲染层。
  */
-export function pdfjsEngine() {
+function pdfjsEngine() {
   const lib = typeof PDFJS?.getDocument === 'function' ? PDFJS : PDFJS?.default
   if (typeof lib?.getDocument !== 'function' || typeof lib?.PDFWorker?.create !== 'function') {
     throw new Error(`pdfjs 未打进 bundle：keys=${Object.keys(PDFJS ?? {}).slice(0, 10).join(',')}`)
@@ -168,7 +168,7 @@ export function pdfjsEngine() {
 }
 
 /** pdf.js 的 cMap / 标准字体 / wasm 资源按文件名取字节（原生是编译期 base64 内联的同一批资源）。 */
-export function pdfBinaryDataFactory() {
+function pdfBinaryDataFactory() {
   return class PdfBinaryData {
     async fetch({ kind, filename }) {
       const directory = kind === 'cMapUrl'
@@ -187,7 +187,7 @@ export function pdfBinaryDataFactory() {
  * 起一个普通 worker 并等它就绪。worker 源码在构建期已内联（同时去掉了 export 尾巴），
  * `WorkerMessageHandler` 的静态块会自己 `initializeFromPort(self)`。
  */
-export function startPdfWorker() {
+function startPdfWorker() {
   if (typeof pdfWorkerSource !== 'string' || pdfWorkerSource.length === 0) {
     return Promise.reject(new Error('pdf.worker 源码没有内联进 bundle'))
   }
@@ -457,7 +457,7 @@ export function ImagePreview(input) {
 }
 
 /** SheetJS 引擎：构建期由 esbuild 打进 bundle（主体 Excel 预览用的就是它，0.20.3）。 */
-export function xlsxEngine() {
+function xlsxEngine() {
   const lib = typeof XLSX_LIB?.read === 'function' ? XLSX_LIB : XLSX_LIB?.default
   if (typeof lib?.read !== 'function') {
     throw new Error(`SheetJS 未打进 bundle：keys=${Object.keys(XLSX_LIB ?? {}).slice(0, 10).join(',')}`)
@@ -560,7 +560,7 @@ export function formatBytes(value) {
  * @param columns - 列数
  * @param template - `gridTemplateColumns`（首列固定行号宽）
  */
-export function tableGrid(shown, columns, template) {
+function tableGrid(shown, columns, template) {
   const headerRow = h('div', { key: 'cols', style: { display: 'grid', gridTemplateColumns: template, position: 'sticky', top: 0, zIndex: 2 } },
     h('div', { style: { ...styles.csvColHead, position: 'static' } }, ''),
     Array.from({ length: columns }, (_, at) => h('div', { key: at, style: { ...styles.csvColHead, position: 'static' } }, columnName(at))),
@@ -575,7 +575,7 @@ export function tableGrid(shown, columns, template) {
 }
 
 /** 表格上方的 A1 / fx 条（公式栏外观，取当前选中单元格的值）。 */
-export function tableFormulaBar(value) {
+function tableFormulaBar(value) {
   return h('div', { style: styles.csvBar },
     h('span', { style: styles.csvCellRef }, 'A1'),
     h('span', { style: styles.csvFx }, 'fx'),

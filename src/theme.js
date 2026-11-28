@@ -20,7 +20,6 @@ export const SCROLL_SKIN = [
   '[data-rp-change-row]:hover, [data-rp-change-toggle]:hover {'
   + ' background: var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.06)); }',
   '[data-rp-change-header]:hover { background: var(--dsw-alias-card-fill-hover, #f2f3f5); }',
-  '[data-rp-change-header]:hover [data-rp-change-counts] { display: none; }',
   '[data-rp-change-header]:hover [data-rp-change-hint] { display: inline; }',
   /* 会话树行：hover 全部交给 CSS（原生就是 `:hover`）。行在指针底下被移除/插入时，浏览器会把 hover
      直接交给现在占位的行；用 React 的 hover 状态则收不到 mouseenter（鼠标没动），会出现「上面一行
@@ -69,6 +68,9 @@ export const T = {
   ter: 'var(--dsw-alias-label-tertiary, #9aa0a6)',
   pri: 'var(--dsw-alias-label-primary, inherit)',
   sec: 'var(--dsw-alias-label-secondary, inherit)',
+  /* 菜单项 hover 底色：常规一档、叠在卡片上再深一点的一档 */
+  hover: 'var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.04))',
+  hoverStrong: 'var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.05))',
   radiusMd: 'var(--dsw-radius-md, 8px)',
   radiusSm8: 'var(--dsw-radius-sm, 8px)',
   radiusLg10: 'var(--dsw-radius-lg, 10px)',
