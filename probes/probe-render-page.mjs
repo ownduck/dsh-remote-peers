@@ -39,10 +39,21 @@ let dirty = false
 const sameDeps = (left, right) => Array.isArray(left) && Array.isArray(right) && left.length === right.length && left.every((item, index) => Object.is(item, right[index]))
 
 const reactStub = {
+  /** 类组件基类（错误边界用）：只保存 props，render 由子类实现。 */
+  Component: class { constructor(props) { this.props = props } },
   createElement: (type, props, ...children) => {
     const merged = children.length === 0 ? props?.children : (children.length === 1 ? children[0] : children)
     const finalProps = { ...(props ?? {}), children: merged }
-    if (typeof type === 'function') return type(finalProps)
+    if (typeof type === 'function') {
+      // 类组件（错误边界）：按 React 的语义新建成实例再取 render 结果。
+      if (type.prototype?.isReactComponent === true || type.isReactComponent === true) {
+        const instance = new type(finalProps)
+        instance.props = finalProps
+        instance.state = instance.state ?? null
+        return instance.render()
+      }
+      return type(finalProps)
+    }
     return { type, props: finalProps }
   },
   Fragment: 'fragment',

@@ -242,6 +242,48 @@ const markdownLabels = {
     /** 面板宽度约定：与 main 列一致，自身负责滚动。 */
 
     /** 面板组件：所有数据经本机 Host 的 /remote-peers 通道取得。 */
+    /**
+     * 面板的错误边界：渲染抛异常时原生只会留一块空白，这里换成可读的错误卡（含消息与首行栈），
+     * 同时把异常经 Host 的 `diag` 端点写进 stateDir/diag.log（渲染器没有控制台可看）。
+     */
+    class PanelBoundary extends react.Component {
+      static isReactComponent = true
+
+      static getDerivedStateFromError(failure) {
+        return { failure }
+      }
+
+      constructor(props) {
+        super(props)
+        this.state = { failure: null }
+      }
+
+      componentDidCatch(failure) {
+        this.props.onFailure?.(failure)
+      }
+
+      render() {
+        if (this.state.failure === null) return this.props.children
+        const failure = this.state.failure
+        return h('div', { style: { padding: 16, fontFamily: 'inherit', fontSize: 13, color: T.pri, whiteSpace: 'pre-wrap' } },
+          h('div', { style: { fontWeight: 600, marginBottom: 8 } }, '远程端面板渲染失败'),
+          h('div', { style: { color: T.sec, marginBottom: 8 } }, String(failure?.message ?? failure)),
+          h('div', { style: { color: T.ter, fontSize: 12 } }, String(failure?.stack ?? '')),
+        )
+      }
+    }
+
+    /** 把渲染器一侧的异常落到 Host 的 diag.log（失败就静默，不能反过来影响界面）。 */
+    function reportClientFailure(api, kind, failure) {
+      try {
+        void api.call('diag', {
+          kind,
+          message: String(failure?.message ?? failure).slice(0, 400),
+          stack: String(failure?.stack ?? '').slice(0, 2000),
+        }).catch(() => {})
+      } catch { /* 上报失败不影响界面 */ }
+    }
+
     function RemotePeersPanel(injected) {
       /** 由左栏「远程 · 机器名」入口传入：为真时直接进入该端，只显示会话区。 */
       const focusPeer = injected.focusPeer
@@ -6995,6 +7037,13 @@ const markdownLabels = {
         },
       }
 
+      /** 渲染器里的未捕获异常也落一份 diag.log：面板空白时才有据可查（热更新会重复 apply，装一次即可）。 */
+      if (globalThis.addEventListener !== undefined && globalThis.__rpErrorHook !== true) {
+        globalThis.__rpErrorHook = true
+        globalThis.addEventListener('error', (event) => reportClientFailure(api, `window-error ${String(event?.message ?? '')}`, event?.error ?? event?.message))
+        globalThis.addEventListener('unhandledrejection', (event) => reportClientFailure(api, 'unhandledrejection', event?.reason))
+      }
+
       /** 已注册的左栏入口：peerId → { panel 释放器, main 释放器, holder }。 */
       const entries = new Map()
       let latestPeers = []
@@ -7041,7 +7090,9 @@ const markdownLabels = {
             const main = ctx.slots.register({
               name: 'main',
               key,
-            }, () => h(RemotePeersPanel, { api, focusPeer: holder.current, onPeersChanged: syncPeers }))
+            }, () => h(PanelBoundary, {
+              onFailure: (failure) => reportClientFailure(api, 'panel-render', failure),
+            }, h(RemotePeersPanel, { api, focusPeer: holder.current, onPeersChanged: syncPeers })))
             entries.set(peer.id, { panel, main, holder })
           } catch (failure) {
             console.warn('remote-peers: 注册左栏入口失败', failure)

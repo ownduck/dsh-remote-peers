@@ -5,6 +5,7 @@ import vm from 'node:vm'
 const code = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
 
 const reactStub = {
+  Component: class { constructor(props) { this.props = props } },
   createElement: () => ({ type: 'div' }),
   Fragment: 'fragment',
   useState: (value) => [typeof value === 'function' ? value() : value, () => {}],
