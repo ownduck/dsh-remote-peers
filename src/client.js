@@ -474,6 +474,8 @@ const markdownLabels = {
       /** 对端权限预设（沙箱模式）：catalog + 当前会话选中的那条。 */
       const [permissionOptions, setPermissionOptions] = useState([])
       const [permissionPreset, setPermissionPreset] = useState(null)
+      /** 目录里的默认档：会话没有 `permission/preset` 事件时按它显示（原生同样常显）。 */
+      const [permissionDefault, setPermissionDefault] = useState(null)
       const [permissionOpen, setPermissionOpen] = useState(false)
       const [permissionBusy, setPermissionBusy] = useState(false)
       /** 待确认的危险档（完全权限要二次确认，与原生一致）。 */
@@ -1550,6 +1552,7 @@ const markdownLabels = {
           })
           const envelope = envelopeOf(result, '取权限预设失败')
           setPermissionOptions(envelope.value?.options ?? [])
+          setPermissionDefault(envelope.value?.defaultPreset ?? null)
           return envelope.value ?? null
         } catch (failure) {
           setPermissionOptions([])
@@ -6025,6 +6028,13 @@ const markdownLabels = {
 
       /** 底部输入区：药丸容器 + 模型/推理等级 + 状态行。 */
       function renderComposer() {
+        /* 权限 chip 常显（原生 PermissionSelect 只要拿到目录就一直在）：
+           会话小页里可能没有 `permission/preset` 事件（长会话的 20 条窗口里不一定有），
+           此时回落到目录默认档，而不是整块消失。 */
+        const shownPermission = permissionPreset
+          ?? permissionDefault
+          ?? permissionOptions[0]?.value
+          ?? null
         /** 输入框共用属性：受控值 + 自适应高度 + Enter 提交（Shift+Enter 换行）。 */
         const inputProps = (style, placeholder) => ({
           ref: inputRef, className: 'rp-composer-input', style, rows: 1, value: promptText, placeholder,
@@ -6116,7 +6126,7 @@ const markdownLabels = {
                   },
                 }, plusGlyph()),
               ),
-              permissionPreset === null
+              shownPermission === null
                 ? null
                 : h('div', { style: { position: 'relative' } },
                     h('button', {
@@ -6131,8 +6141,8 @@ const markdownLabels = {
                         setPermissionOpen((previous) => !previous)
                       },
                     },
-                    permissionIcon(permissionPreset, 14),
-                    h('span', null, permissionLabel(permissionPreset) ?? permissionPreset),
+                    permissionIcon(shownPermission, 14),
+                    h('span', null, permissionLabel(shownPermission) ?? shownPermission),
                     caretIcon(permissionOpen),
                     ),
                     permissionOpen ? renderPermissionMenu() : null,
@@ -6777,6 +6787,8 @@ const markdownLabels = {
 
       /** 权限下拉：三档一列，选中项右侧打勾；完全权限走独立的风险确认弹窗。 */
       function renderPermissionMenu() {
+        /** 当前生效的档：会话没写过 preset 时用目录默认档（chip 显示的就是它）。 */
+        const currentPreset = permissionPreset ?? permissionDefault
         const values = permissionOptions.length === 0
           ? ['read-only', 'workspace-write', 'danger-full-access']
           : permissionOptions.map((option) => option.value)
@@ -6787,7 +6799,7 @@ const markdownLabels = {
             ...hoverBackdrop(T.hoverStrong),
             disabled: permissionBusy,
             onClick: () => {
-              if (value === permissionPreset) { setPermissionOpen(false); return }
+              if (value === currentPreset) { setPermissionOpen(false); return }
               if (value === 'danger-full-access') {
                 setPermissionOpen(false)
                 setPermissionRiskAck(false)
@@ -6799,7 +6811,7 @@ const markdownLabels = {
           },
           permissionIcon(value, 16),
           h('span', { style: { flex: 1 } }, permissionLabel(value) ?? value),
-          value === permissionPreset ? h('span', { style: styles.permissionCheck }, '✓') : null,
+          value === currentPreset ? h('span', { style: styles.permissionCheck }, '✓') : null,
           )),
         )
       }
