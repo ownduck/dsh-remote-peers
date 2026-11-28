@@ -695,32 +695,14 @@ export function apply(ctx, config = {}) {
       })
     },
   }
-  const streamRoute = {
-    path: '/api/remote-peers/stream',
-    methods: ['GET'],
-    requestBody: 'buffered',
-    fetch: async (request) => {
-      const url = new URL(request.url)
-      const id = url.searchParams.get('id')
-      const peerEntry = peerById(id)
-      if (peerEntry === undefined) return new Response('unknown peer', { status: 404 })
+  const streamRoute = peerPassRoute('/api/remote-peers/stream', '/remote-peers/stream',
+    (url) => {
       const endpoint = url.searchParams.get('endpoint')
       const payload = url.searchParams.get('payload')
-      if (endpoint === null || payload === null) return new Response('missing endpoint or payload', { status: 400 })
-      const upstream = upstreamUrl(peerEntry, `/remote-peers/stream`)
-      upstream.searchParams.set('endpoint', endpoint)
-      upstream.searchParams.set('payload', payload)
-      const response = await fetch(upstream, {
-        headers: peerHeaders(peerEntry),
-        signal: request.signal,
-      })
-      if (!response.ok) return new Response(`upstream ${response.status}`, { status: 502 })
-      return new Response(response.body, {
-        status: 200,
-        headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache, no-transform' },
-      })
+      if (endpoint === null || payload === null) return 'missing endpoint or payload'
+      return { endpoint, payload }
     },
-  }
+    () => ({ 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache, no-transform' }))
   // 会话导出：把对端的 `GET /api/session.export` 原样转成本机的一条下载路由，
   // 浏览器只与本机通信，对端令牌不出 Host。
 
@@ -757,67 +739,61 @@ function peerHeaders(peerEntry) {
   return { [TOKEN_HEADER]: peerEntry.token }
 }
 
-  const exportRoute = {
-    path: '/api/remote-peers/export',
+/**
+ * 对端 `GET <upstreamPath>?…` 的直通路由：查 peer → 组查询串 → 带令牌转发 → 回写指定响应头。
+ * `paramsOf(url)` 返回要转发的查询参数，或返回一段文案表示参数不合法（回 400）。
+ * 404/400/502 的口径与原各条路由一致。
+ * @param path - 本机暴露的路由路径
+ * @param upstreamPath - 对端路径（`/api/…`）
+ * @param paramsOf - `(url) => Record<string,string> | string`
+ * @param headersOf - `(response, params) => Record<string,string>`，写回浏览器的响应头
+ * @returns 路由定义
+ */
+function peerPassRoute(path, upstreamPath, paramsOf, headersOf) {
+  return {
+    path,
     methods: ['GET'],
     requestBody: 'buffered',
     fetch: async (request) => {
       const url = new URL(request.url)
-      const id = url.searchParams.get('id')
-      const peerEntry = peerById(id)
+      const peerEntry = peerById(url.searchParams.get('id'))
       if (peerEntry === undefined) return new Response('unknown peer', { status: 404 })
-      const sessionId = url.searchParams.get('sessionId')
-      if (sessionId === null || sessionId === '') return new Response('missing sessionId', { status: 400 })
-      const upstream = upstreamUrl(peerEntry, `/api/session.export`)
-      upstream.searchParams.set('sessionId', sessionId)
-      upstream.searchParams.set('includeDescendants', url.searchParams.get('includeDescendants') ?? 'true')
-      const response = await fetch(upstream, {
-        headers: peerHeaders(peerEntry),
-        signal: request.signal,
-      })
+      const params = paramsOf(url)
+      if (typeof params === 'string') return new Response(params, { status: 400 })
+      const upstream = upstreamUrl(peerEntry, upstreamPath)
+      for (const [name, value] of Object.entries(params)) upstream.searchParams.set(name, value)
+      const response = await fetch(upstream, { headers: peerHeaders(peerEntry), signal: request.signal })
       if (!response.ok) return new Response(`upstream ${response.status}`, { status: 502 })
-      const disposition = response.headers.get('content-disposition')
-        ?? `attachment; filename="dsh-session-${sessionId}.zip"`
-      return new Response(response.body, {
-        status: 200,
-        headers: {
-          'content-type': response.headers.get('content-type') ?? 'application/zip',
-          'content-disposition': disposition,
-          'cache-control': 'no-store',
-        },
-      })
+      return new Response(response.body, { status: 200, headers: headersOf(response, params) })
     },
   }
+}
+
+  const exportRoute = peerPassRoute('/api/remote-peers/export', '/api/session.export',
+    (url) => {
+      const sessionId = url.searchParams.get('sessionId')
+      if (sessionId === null || sessionId === '') return 'missing sessionId'
+      return { sessionId, includeDescendants: url.searchParams.get('includeDescendants') ?? 'true' }
+    },
+    (response, params) => ({
+      'content-type': response.headers.get('content-type') ?? 'application/zip',
+      'content-disposition': response.headers.get('content-disposition')
+        ?? `attachment; filename="dsh-session-${params.sessionId}.zip"`,
+      'cache-control': 'no-store',
+    }))
 
   // 复制会话为 Markdown：把对端的 `GET /api/session.markdown` 转成本机一条路由，
   // 对端 Host 自己按会话日志生成 Markdown（原生同一实现），令牌不出 Host。
-  const markdownRoute = {
-    path: '/api/remote-peers/markdown',
-    methods: ['GET'],
-    requestBody: 'buffered',
-    fetch: async (request) => {
-      const url = new URL(request.url)
-      const id = url.searchParams.get('id')
-      const peerEntry = peerById(id)
-      if (peerEntry === undefined) return new Response('unknown peer', { status: 404 })
+  const markdownRoute = peerPassRoute('/api/remote-peers/markdown', '/api/session.markdown',
+    (url) => {
       const sessionId = url.searchParams.get('sessionId')
-      if (sessionId === null || sessionId === '') return new Response('missing sessionId', { status: 400 })
-      const upstream = upstreamUrl(peerEntry, `/api/session.markdown`)
-      upstream.searchParams.set('sessionId', sessionId)
-      const response = await fetch(upstream, {
-        headers: peerHeaders(peerEntry),
-        signal: request.signal,
-      })
-      if (!response.ok) return new Response(`upstream ${response.status}`, { status: 502 })
-      return new Response(response.body, {
-        status: 200,
-        headers: {
-          'content-type': response.headers.get('content-type') ?? 'text/markdown; charset=utf-8',
-          'cache-control': 'no-store',
-        },
-      })
+      if (sessionId === null || sessionId === '') return 'missing sessionId'
+      return { sessionId }
     },
-  }
+    (response) => ({
+      'content-type': response.headers.get('content-type') ?? 'text/markdown; charset=utf-8',
+      'cache-control': 'no-store',
+    }))
 
   // 预览 / 下载：把对端的 `GET|HEAD /api/file?path=` 转成本机一条路由。
   // 对端在缺 `v` 时 302 到带版本号的 URL；这里把重定向改写成指回本路由（保留 id），

@@ -448,6 +448,8 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       td: { padding: '6px 8px', borderBottom: '1px solid var(--dsh-border-weak, #f0f0f0)' },
       /* 会话树（照原生左栏「工作区 → 会话」的形状：文件夹行 + 缩进会话行 + 右侧相对时间） */
       sessionTree: { display: 'flex', flexDirection: 'column', gap: 1 },
+      /* 图标 SVG 的公共外形：16 视图框、lex:none、随文字色（50 处重复的 prop 对象收敛到这里） */
+      iconBox: { viewBox: '0 0 16 16', style: { flex: 'none', display: 'block', color: 'inherit' } },
       /* 行本体：原生 `.projectRow`/`.sessionRow` —— 32px、0 8px、md 圆角、gap 6 */
       sessionTreeRow: { display: 'flex', alignItems: 'center', gap: 6, boxSizing: 'border-box', width: '100%', height: 32, margin: 0, padding: '0 8px', border: 0, borderRadius: 'var(--dsw-radius-md, 8px)', background: 'transparent', color: 'inherit', font: 'inherit', textAlign: 'left', cursor: 'pointer' },
       /* 前导槽：原生 `.slot` —— 16×20 居中，常态放文件夹图标，hover 换成实心三角（`.projectRow:hover` 的 folder/chevron 互换） */
@@ -688,7 +690,6 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       presentActions: { display: 'inline-flex', flex: 'none', pointerEvents: 'auto' },
       /* 卡片右侧分段按钮：原生 `ui-open-in-app` 的 图标 + caret 双格，24px 高、8px 圆角、发丝描边 */
       splitButton: { display: 'inline-flex', alignItems: 'stretch', flex: 'none', height: 24, border: '0.5px solid var(--dsw-alias-border-l2, #e3e4e6)', borderRadius: T.radiusMd, background: 'transparent', overflow: 'hidden' },
-      splitMain: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, border: 0, background: 'transparent', color: T.pri, cursor: 'pointer', padding: 0 },
       /** 卡片里那排 12px 紧凑分段：按钮宽度由内容决定，不再固定 28。 */
       splitCompact: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 'auto', minWidth: 0, border: 0, background: 'transparent', color: T.pri, cursor: 'pointer', padding: '0 9px', gap: 4, fontSize: 12, lineHeight: '16px', whiteSpace: 'nowrap' },
       /** 同上的「下载」格：多一层定位容器，用来贴底部 2px 进度线。 */
@@ -5353,17 +5354,6 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         return trimmed === '' ? fallback : trimmed
       }
 
-      /** 文件大小：卡片上按 `12.3 MB` / `856 KB` 这种口吻显示，拿不到就给空串。 */
-      function formatBytes(bytes) {
-        if (typeof bytes !== 'number' || !Number.isFinite(bytes) || bytes <= 0) return ''
-        if (bytes >= 1024 * 1024) {
-          const mb = bytes / 1024 / 1024
-          return `${mb >= 100 ? Math.round(mb) : mb.toFixed(1)} MB`
-        }
-        if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`
-        return `${Math.round(bytes)} B`
-      }
-
       /** 该文件当前的下载任务（没有则 undefined）：卡片据此在「下载 / 取消 NN%」之间切换。 */
       function downloadJobOf(path) {
         return downloads.find((item) => item.key === `${activePeer}:${path}`)
@@ -5853,7 +5843,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
 
       function folderGlyph(size = 14) {
         const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round' }
-        return h('svg', { width: size, height: size, viewBox: '0 0 16 16', style: { flex: 'none', color: 'inherit' } },
+        return h('svg', { width: size, height: size, ...styles.iconBox },
           h('path', { d: 'M2.4 12.6V4.6a1 1 0 0 1 1-1h3l1.4 1.8h4.8a1 1 0 0 1 1 1v6.2a1 1 0 0 1-1 1H3.4a1 1 0 0 1-1-1Z', ...stroke }))
       }
 
@@ -6213,25 +6203,16 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
 
       /** 菜单里的「重命名」：原生 `IconEditOutlineRegular` 的原路径（方框 + 斜笔），14px。 */
       function renameGlyph(size = 14) {
-        return h('svg', { width: size, height: size, viewBox: '0 0 16 16', style: { flex: 'none', display: 'block', color: 'inherit' } },
+        return h('svg', { width: size, height: size, ...styles.iconBox },
           h('path', { d: 'M8.85596 2.69971H4.19971C3.37141 2.69971 2.69992 3.37146 2.69971 4.19971V11.8003C2.69992 12.6285 3.37141 13.3003 4.19971 13.3003H11.8003C12.6283 13.2999 13.3001 12.6283 13.3003 11.8003V7.89893H14.3003V11.8003C14.3001 13.1806 13.1806 14.2999 11.8003 14.3003H4.19971C2.81913 14.3003 1.69992 13.1808 1.69971 11.8003V4.19971C1.69992 2.81918 2.81913 1.69971 4.19971 1.69971H8.85596V2.69971Z', fill: 'currentColor' }),
           h('path', { d: 'M7.7849 8.23878L13.888 2.13574', fill: 'none', stroke: 'currentColor', strokeWidth: 1 }))
-      }
-
-      /** 会话行「归档」：原生 `IconArchiveOutlineRegular`（归档箱），14px、1px 描边。 */
-      function archiveGlyph(size = 14) {
-        const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1 }
-        return h('svg', { width: size, height: size, viewBox: '0 0 16 16', style: { flex: 'none', display: 'block', color: 'inherit' } },
-          h('path', { d: 'M13.5 2.5H2.5C1.94772 2.5 1.5 2.94772 1.5 3.5V4.5C1.5 5.05228 1.94772 5.5 2.5 5.5H13.5C14.0523 5.5 14.5 5.05228 14.5 4.5V3.5C14.5 2.94772 14.0523 2.5 13.5 2.5Z', ...stroke }),
-          h('path', { d: 'M2.5 5.5V13.5C2.5 13.7652 2.60536 14.0196 2.79289 14.2071C2.98043 14.3946 3.23478 14.5 3.5 14.5H12.5C12.7652 14.5 13.0196 14.3946 13.2071 14.2071C13.3946 14.0196 13.5 13.7652 13.5 13.5V5.5', ...stroke }),
-          h('path', { d: 'M6.5 9.5H9.5', ...stroke }))
       }
 
       /** 「置顶」：原生 `IconPinOutlineRegular`（空心图钉）；`filled` 用 `IconPinFillRegular` 的实心路径。 */
       function pinGlyph(size = 14, filled = false) {
         const body = 'M9.96976 1.70572L13.1554 3.93629L10.9019 8.12317L11.5158 11.605L10.7192 12.7427L2.52767 7.00693L3.3243 5.86922L6.80612 5.25528L9.96976 1.70572Z'
         const pin = 'M6.05285 9.47511C6.27284 9.16094 6.70586 9.08458 7.02003 9.30457C7.3342 9.52455 7.41055 9.95757 7.19057 10.2717L3.98587 14.4708L3.21223 13.9291L6.05285 9.47511Z'
-        return h('svg', { width: size, height: size, viewBox: '0 0 16 16', style: { flex: 'none', display: 'block', color: 'inherit' } },
+        return h('svg', { width: size, height: size, ...styles.iconBox },
           filled
             ? [h('path', { key: 'b', d: body, fill: 'currentColor', stroke: 'currentColor', strokeLinejoin: 'round' }),
                 h('path', { key: 'p', d: pin, fill: 'currentColor' })]
@@ -6239,9 +6220,10 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
                 h('path', { key: 'p', d: pin, fill: 'currentColor' })])
       }
 
-      /** 「新会话」：原生 `IconNewChatOutlineRegular` 的原路径（气泡 + 十字），14px、1px 描边。 */      function newChatGlyph(size = 14) {
+      /** 「新会话」：原生 `IconNewChatOutlineRegular` 的原路径（气泡 + 十字），14px、1px 描边。 */
+      function newChatGlyph(size = 14) {
         const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1, strokeLinecap: 'round', strokeLinejoin: 'round' }
-        return h('svg', { width: size, height: size, viewBox: '0 0 16 16', style: { flex: 'none', display: 'block', color: 'inherit' } },
+        return h('svg', { width: size, height: size, ...styles.iconBox },
           h('path', { d: 'M2.37091 11.2501C1.58745 9.89288 1.32067 8.29835 1.61969 6.76006C1.91872 5.22177 2.76342 3.8433 3.99826 2.87846C5.2331 1.91362 6.77494 1.42737 8.33988 1.50925C9.90482 1.59113 11.3875 2.23562 12.5149 3.32406C13.6425 4.41269 14.3387 5.87206 14.4754 7.4334C14.612 8.99474 14.18 10.5529 13.2587 11.8209C12.3375 13.0888 10.9891 13.9813 9.46194 14.3337C8.18691 14.628 6.85895 14.5294 5.64989 14.0605C5.1712 13.8748 4.76962 13.4932 4.26534 13.3967C3.67413 13.2835 2.95257 13.5598 2.03794 14.3337', ...stroke }),
           h('path', { d: 'M8 5V11', ...stroke }),
           h('path', { d: 'M5 8H11', ...stroke }))
@@ -6249,7 +6231,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
 
       function searchGlyph(size = 14) {
         const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1, strokeLinecap: 'round' }
-        return h('svg', { width: size, height: size, viewBox: '0 0 16 16', style: { flex: 'none', color: 'inherit' } },
+        return h('svg', { width: size, height: size, ...styles.iconBox },
           h('circle', { cx: 7, cy: 7, r: 4.4, ...stroke }),
           h('path', { d: 'M10.4 10.4L13.6 13.6', ...stroke }))
       }
@@ -6257,7 +6239,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       /** 「视图选项」字形：两条带滑块的横线（原生左栏 filters 图标）。 */
       function slidersGlyph(size = 15) {
         const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.1, strokeLinecap: 'round' }
-        return h('svg', { width: size, height: size, viewBox: '0 0 16 16', style: { flex: 'none', color: 'inherit' } },
+        return h('svg', { width: size, height: size, ...styles.iconBox },
           h('path', { d: 'M2.6 5.4h10.8', ...stroke }),
           h('circle', { cx: 6.2, cy: 5.4, r: 1.5, ...stroke }),
           h('path', { d: 'M2.6 10.6h10.8', ...stroke }),
@@ -6267,7 +6249,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       /** 单列表字形：三行等长横线。 */
       function listGlyph(size = 14) {
         const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.1, strokeLinecap: 'round' }
-        return h('svg', { width: size, height: size, viewBox: '0 0 16 16', style: { flex: 'none', color: 'inherit' } },
+        return h('svg', { width: size, height: size, ...styles.iconBox },
           h('path', { d: 'M2.8 4.4h10.4', ...stroke }),
           h('path', { d: 'M2.8 8h10.4', ...stroke }),
           h('path', { d: 'M2.8 11.6h10.4', ...stroke }))
@@ -6276,7 +6258,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       /** 隐藏已归档字形：带斜杠的眼睛。 */
       function eyeOffGlyph(size = 14) {
         const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.1, strokeLinecap: 'round' }
-        return h('svg', { width: size, height: size, viewBox: '0 0 16 16', style: { flex: 'none', color: 'inherit' } },
+        return h('svg', { width: size, height: size, ...styles.iconBox },
           h('path', { d: 'M2.4 8c1.4-2.6 3.4-4 5.6-4s4.2 1.4 5.6 4c-1.4 2.6-3.4 4-5.6 4S3.8 10.6 2.4 8Z', ...stroke }),
           h('circle', { cx: 8, cy: 8, r: 1.7, ...stroke }),
           h('path', { d: 'M3 13L13 3', ...stroke }))
@@ -6285,14 +6267,14 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       /** 全部对话字形：对话气泡。 */
       function chatGlyph(size = 14) {
         const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.1, strokeLinecap: 'round' }
-        return h('svg', { width: size, height: size, viewBox: '0 0 16 16', style: { flex: 'none', color: 'inherit' } },
+        return h('svg', { width: size, height: size, ...styles.iconBox },
           h('path', { d: 'M13.2 8.4a4.6 4.6 0 0 1-4.6 4.6H6.2L3.4 14.2v-2.4A4.6 4.6 0 0 1 8.6 3.8a4.6 4.6 0 0 1 4.6 4.6Z', ...stroke }))
       }
 
       /** 已归档字形：带盖的盒子。 */
       function archiveGlyph(size = 14) {
         const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.1, strokeLinecap: 'round' }
-        return h('svg', { width: size, height: size, viewBox: '0 0 16 16', style: { flex: 'none', color: 'inherit' } },
+        return h('svg', { width: size, height: size, ...styles.iconBox },
           h('path', { d: 'M2.6 5.4h10.8v7.2a.8.8 0 0 1-.8.8H3.4a.8.8 0 0 1-.8-.8Z', ...stroke }),
           h('path', { d: 'M2.2 2.8h11.6v2.6H2.2Z', ...stroke }),
           h('path', { d: 'M6.2 8.4h3.6', ...stroke }))
@@ -6301,15 +6283,9 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       /** 返回字形：细箭头（返回远程端列表用）。 */
       function backArrowGlyph(size = 15) {
         const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.2, strokeLinecap: 'round', strokeLinejoin: 'round' }
-        return h('svg', { width: size, height: size, viewBox: '0 0 16 16', style: { flex: 'none', color: 'inherit' } },
+        return h('svg', { width: size, height: size, ...styles.iconBox },
           h('path', { d: 'M13 8H3.4', ...stroke }),
           h('path', { d: 'M7 3.8L3 8l4 4.2', ...stroke }))
-      }
-
-      /** 关闭字形（18px 内的 ×，14px 线重 1）。 */
-      function closeGlyph(size = 14) {
-        return h('svg', { width: size, height: size, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.2, strokeLinecap: 'round' },
-          h('path', { d: 'M4 4L12 12M12 4L4 12' }))
       }
 
       /** 路径信息页：原路径与解析结果相同时只显示一条，避免同一个绝对路径出现两遍。 */
@@ -6747,7 +6723,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       /** 目录项里的文件字形（文档折角，14px）。 */
       function fileGlyph(size = 14) {
         const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round' }
-        return h('svg', { width: size, height: size, viewBox: '0 0 16 16', style: { flex: 'none', color: 'inherit' } },
+        return h('svg', { width: size, height: size, ...styles.iconBox },
           h('path', { d: 'M8.6 2.4H4.6a1 1 0 0 0-1 1v9.2a1 1 0 0 0 1 1h6.8a1 1 0 0 0 1-1V6.2Z', ...stroke }),
           h('path', { d: 'M8.6 2.4V6.2h3.8', ...stroke }))
       }
@@ -7118,7 +7094,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
 
       /** 12px 细叉：原生 `IconCloseFillRegular` 的尺寸与观感（静止时透明、悬停才露出来）。 */
       function closeGlyph(size = 12) {
-        return h('svg', { width: size, height: size, viewBox: '0 0 16 16', 'aria-hidden': 'true', style: { display: 'block' } },
+        return h('svg', { width: size, height: size, ...styles.iconBox, 'aria-hidden': 'true' },
           h('path', {
             d: 'M3.4 3.4 12.6 12.6M12.6 3.4 3.4 12.6',
             fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round',
@@ -7127,7 +7103,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
 
       /** 16px 三角警告：对端明说拒绝了这份附件时盖在缩略图正中。 */
       function warningGlyph(size = 16) {
-        return h('svg', { width: size, height: size, viewBox: '0 0 16 16', 'aria-hidden': 'true', style: { display: 'block' } },
+        return h('svg', { width: size, height: size, ...styles.iconBox, 'aria-hidden': 'true' },
           h('path', { d: 'M8 2.4 14.4 13.2H1.6Z', fill: 'none', stroke: 'currentColor', strokeWidth: 1.3 }),
           h('path', { d: 'M8 6.2v3.2', stroke: 'currentColor', strokeWidth: 1.3 }),
           h('circle', { cx: 8, cy: 11.3, r: 0.85, fill: 'currentColor' }))
@@ -7135,7 +7111,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
 
       /** 16px 重试箭头：普通上传失败时盖在缩略图正中。 */
       function retryGlyph(size = 16) {
-        return h('svg', { width: size, height: size, viewBox: '0 0 16 16', 'aria-hidden': 'true', style: { display: 'block' } },
+        return h('svg', { width: size, height: size, ...styles.iconBox, 'aria-hidden': 'true' },
           h('path', { d: 'M13 8a5 5 0 1 1-1.5-3.6', fill: 'none', stroke: 'currentColor', strokeWidth: 1.3 }),
           h('path', { d: 'M13.2 2.4v3.4h-3.4', fill: 'none', stroke: 'currentColor', strokeWidth: 1.3 }))
       }
