@@ -2568,9 +2568,12 @@ const markdownLabels = {
         const expandable = text.trim() !== ''
         const summary = (running ? latestParagraphFirstLine(text) : firstLineOfText(text)).replaceAll('**', '')
         const open = expandable && liveReasoningOpen
+        /* 运行中的行按原生 `RunningStatus`：图标常显、不参与 hover 换 chevron（没有可展开的收尾行）。 */
+        const swappable = expandable && !active
         const row = h('div', {
           style: expandable ? styles.thinkRow : { ...styles.thinkRow, cursor: 'default' },
           'data-rp-think-row': '',
+          'data-rp-think-swap': swappable ? '' : undefined,
           role: expandable ? 'button' : undefined,
           tabIndex: expandable ? 0 : undefined,
           'aria-expanded': expandable ? (open ? 'true' : 'false') : undefined,
@@ -2589,7 +2592,7 @@ const markdownLabels = {
                   h('path', { d: 'M3 10.5 8 5.5 13 10.5' }))
               : [
                   h('span', { key: 'icon', style: styles.thinkIconIdle, 'data-rp-think-icon': 'think', dangerouslySetInnerHTML: { __html: PROCESS_ROW_ICONS.think } }),
-                  expandable ? h('svg', { key: 'chevron', 'data-rp-think-chevron': '', style: styles.thinkChevron, width: 14, height: 14, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1 },
+                  swappable ? h('svg', { key: 'chevron', 'data-rp-think-chevron': '', style: styles.thinkChevron, width: 14, height: 14, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1 },
                     h('path', { d: 'M3 5.5 8 10.5 13 5.5' })) : null,
                 ]),
           h('span', { style: active ? styles.thinkTitleRunning : styles.thinkTitle }, active ? `正在思考，用时 ${formatRunDuration(Math.max(1000, Date.now() - turnStartedAt))} ···` : '思考'),

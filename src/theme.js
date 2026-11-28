@@ -53,10 +53,11 @@ export const SCROLL_SKIN = [
   /* 复制成功的回执：按钮底色淡入 + 轻微弹一下 */
   '@keyframes dsh-rp-copied { 0% { transform: scale(0.92); } 60% { transform: scale(1.04); }'
   + ' 100% { transform: scale(1); } }',
-  /* 思考行：hover 时图标让位给 chevron（原生 `.iconIdle` / `.chevronHover`） */
+  /* 思考行：只有「可展开」的行 hover 才让图标让位给 chevron（原生 `.iconIdle` / `.chevronHover`）；
+     运行中的行没有 chevron，图标必须常显，否则 hover 时整格空掉。 */
   '[data-rp-think-row]:hover { color: var(--dsw-alias-label-secondary, #4b5563); }',
-  '[data-rp-think-row]:hover [data-rp-think-icon] { opacity: 0; }',
-  '[data-rp-think-row]:hover [data-rp-think-chevron] { opacity: 1; }',
+  '[data-rp-think-row][data-rp-think-swap]:hover [data-rp-think-icon] { opacity: 0; }',
+  '[data-rp-think-row][data-rp-think-swap]:hover [data-rp-think-chevron] { opacity: 1; }',
   /* 文字 shimmer 扫过（原生 `TextShimmer` 的两条反向关键帧，这里只做遮罩副本） */
   '@keyframes dsh-rp-shimmer { 0% { transform: translateX(-100%); }'
   + ' 66.6667%, 100% { transform: translateX(100%); } }',
