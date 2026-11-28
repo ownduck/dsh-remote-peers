@@ -1625,6 +1625,12 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         }
       }, [call])
 
+      /** 回到会话列表（`openSession` 变空）时刷新一次清单，刚建的会话随之带上标题与 blank 状态。 */
+      useEffect(() => {
+        if (openSession !== null || activePeer === '') return
+        void refreshSessions(activePeer)
+      }, [openSession === null, activePeer, refreshSessions])
+
       /** 本轮进行中时每秒重绘一次，让「用时 N 秒」跟着走。 */
       useEffect(() => {
         if (turnStartedAt === 0) return
@@ -2480,8 +2486,6 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
           setPromptText('')
           resetComposerHeight()
           setError('')
-          // 新会话的首条消息会把 blank 变成 false 并生成标题：清单立刻刷一次
-          void refreshSessions(peerId)
           return true
         } catch (failure) {
           setError(errorText(failure))
@@ -2490,7 +2494,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
         } finally {
           setSending(false)
         }
-      }, [call, runCommand, refreshSessions])
+      }, [call, runCommand])
 
       /**
        * 附件上行走本机网关的二进制作业：`File` 自己就是请求体，网关原样流给节点的
@@ -3921,16 +3925,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
                       event.currentTarget.style.borderColor = 'transparent'
                       event.currentTarget.style.color = 'var(--dsw-alias-label-secondary, #6f7377)'
                     },
-                    onClick: () => {
-                      closeStream()
-                      setOpenSession(null)
-                      setMessages([])
-                      // 回到列表时重读清单 + 工作区基线，刚建的会话才带得上新标题与成员关系
-                      if (activePeer !== '') {
-                        void refreshSessions(activePeer)
-                        openWorkspaceStream(activePeer)
-                      }
-                    },
+                    onClick: () => { closeStream(); setOpenSession(null); setMessages([]) },
                   }, backArrowGlyph(16)),
                   workspaceCrumb === null ? null : h('button', {
                     key: 'crumb-workspace',
