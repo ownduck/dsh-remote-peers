@@ -47,6 +47,11 @@ const PROCESS_ROW_ICONS = {
      * 卡片在这段时间显示 loading（转圈），第一块字节写下去才切进度。
      */
     const STARTING = new Map()
+    /**
+     * 点了「打开」但本机还没有副本：`<peerId>:<对端路径>` → `{ id, path }`。
+     * 打开要走同一条取字节链路，下载格照常转圈/走进度；下完由轮询这一侧回手去开。
+     */
+    const OPEN_WHEN_READY = new Map()
     /** 等不到第一条 status 的「刚点下载」窗口上限：超时就没收，不让卡片一直转圈。 */
     const STARTING_TIMEOUT_MS = 8000
     /**
@@ -426,6 +431,10 @@ const markdownLabels = {
       const sizePendingRef = useRef(new Set())
       /** 刚报过失败的 `<peerId>:<路径>`：任务从 Host 表里消失时据此区分「成功落盘」和「失败退场」。 */
       const failedKeysRef = useRef(new Set())
+      /** 下完就打开：轮询到任务落盘时回调（ref 里始终是最新的打开函数）。 */
+      const openIntentRef = useRef(null)
+      /** 「打开」复用「下载」的取字节链路（ref 里始终是最新的 downloadPeerPath）。 */
+      const downloadPeerRef = useRef(null)
       /** 正在为哪个工作区建新会话（工作区 id），空串表示没有在飞。 */
       const [creatingIn, setCreatingIn] = useState('')
       /** 打开的工作区 ⋯ 菜单：`{ workspaceId, title, top, left }`，null 表示关着。 */
@@ -598,6 +607,7 @@ const markdownLabels = {
                 return next
               })
               LIVE_DOWNLOADS.delete(localKey)
+              OPEN_WHEN_READY.delete(localKey)
               // 必须显式通知：这一支只删表不产生新的进度指纹，不通知的话卡片读到的还是旧快照（一直转圈）。
               notifyDownloads()
               continue
@@ -630,6 +640,12 @@ const markdownLabels = {
             if (gone === undefined || gone.loaded <= 0) continue
             if (CANCELLING.has(localKey) || failedKeysRef.current.has(localKey)) continue
             setLocalCopies((previous) => (previous[localKey] === true ? previous : { ...previous, [localKey]: true }))
+            // 这一格是「打开」点下来的：字节齐了，回手打开本机副本。
+            const intent = OPEN_WHEN_READY.get(localKey)
+            if (intent !== undefined) {
+              OPEN_WHEN_READY.delete(localKey)
+              void openIntentRef.current?.(intent)
+            }
           }
           const next = [...LIVE_DOWNLOADS.values()].map((job) => `${job.key}|${job.phase}|${job.loaded}|${job.total}`).join(',')
           // 兜底：点了「下载」但 Host 始终没有认领出这条任务（对端已无此文件、Host 仍在旧版本、
@@ -638,6 +654,7 @@ const markdownLabels = {
             if (Date.now() - (Number(job?.startedAt) || 0) < STARTING_TIMEOUT_MS) continue
             if (list.some((entry) => transferKeyOf(entry.peerId, entry.path) === localKey)) continue
             STARTING.delete(localKey)
+            OPEN_WHEN_READY.delete(localKey)
             notifyDownloads()
           }
           // 有任务在跑的 key 一律撤回「已下载」：那只可能是副本被删了在重取（或刚点了下载），
@@ -2073,22 +2090,38 @@ const markdownLabels = {
        * 必须定义在会话页的提前 `return` 之前：会话页走的是那条早退分支，晚定义的
        * `const` 在该次渲染里永远是 TDZ，点击时才炸成「没有反应」。
        */
-      const openPeerPath = useCallback(async (file) => {
-        const path = peerAbsoluteOf(file)
-        if (path === '' || activePeer === '') return
-        const name = baseNameOf(path)
+      const openLocalCopy = useCallback(async (id, path) => {
         // 成功路径完全静默：不弹任何提示（用户明确要求「打开」不出现 toast）。
         try {
-          const result = await call('open-local', { id: activePeer, path, sessionId: openSession ?? '' })
+          const result = await call('open-local', { id, path, sessionId: openSession ?? '' })
           // 本机端点回的是解包后的值（`{ path, action }`），不是 `proxy` 那种 `{ result }` 信封。
           const opened = result?.result?.ok === true ? result.result.value : result
           if (typeof opened?.path !== 'string') throw new Error('本机没能打开这个文件')
-          if (opened.reused === true) setLocalCopies((previous) => (previous[transferKeyOf(activePeer, path)] === true ? previous : { ...previous, [transferKeyOf(activePeer, path)]: true }))
+          if (opened.reused === true) setLocalCopies((previous) => (previous[transferKeyOf(id, path)] === true ? previous : { ...previous, [transferKeyOf(id, path)]: true }))
           setError('')
         } catch (failure) {
           notice(errorText(failure), false)
         }
-      }, [call, activePeer, openSession])
+      }, [call, openSession])
+
+      const openPeerPath = useCallback(async (file) => {
+        const path = peerAbsoluteOf(file)
+        if (path === '' || activePeer === '') return
+        const key = transferKeyOf(activePeer, path)
+        // 本机没有副本：走「下载」同一条链路，下载格照常转圈/走进度，落盘后由轮询回手打开。
+        // （Host 的 open-local 自己也会取字节，但那样界面上一点反应都没有，大文件像卡死。）
+        if (localCopies[key] !== true) {
+          if (fileSizes[key] === 'missing') {
+            notice('对端上没有这份文件（可能已被清理或移动）', false)
+            return
+          }
+          OPEN_WHEN_READY.set(key, { id: activePeer, path })
+          if (!LIVE_DOWNLOADS.has(key) && !STARTING.has(key)) downloadPeerRef.current?.(file)
+          else notifyDownloads()
+          return
+        }
+        await openLocalCopy(activePeer, path)
+      }, [activePeer, localCopies, fileSizes, openLocalCopy])
 
 
       /**
@@ -2179,15 +2212,24 @@ const markdownLabels = {
             setLocalCopies((previous) => (previous[key] === true ? previous : { ...previous, [key]: true }))
             notifyDownloads()
             notice('已下载过，本机已有这份文件的副本', true)
+            const intent = OPEN_WHEN_READY.get(key)
+            if (intent !== undefined) {
+              OPEN_WHEN_READY.delete(key)
+              void openIntentRef.current?.(intent)
+            }
           }
           // 否则等 Host 的第一块字节：轮询看到 loaded > 0 就切进度，失败则由轮询弹提示。
         }).catch((failure) => {
           STARTING.delete(key)
+          OPEN_WHEN_READY.delete(key)
           notifyDownloads()
           diagNote(`download save failed ${path}: ${errorText(failure)}`)
           notice(`下载失败：${downloadFailureText(errorText(failure))}`, false)
         })
       }, [activePeer, openSession, fileSizes])
+      // 每次渲染刷新这两个 ref：轮询（后定义的那条 effect）与「打开」共用同一份最新实现。
+      downloadPeerRef.current = downloadPeerPath
+      openIntentRef.current = (intent) => openLocalCopy(intent.id, intent.path)
 
       /**
        * 取消入口（第一段）：只弹确认框。大文件误点一下就会丢掉进度，先在「继续下载 / 取消下载」里选。
@@ -2202,6 +2244,7 @@ const markdownLabels = {
         // 本地没有记账（键对不上、或状态已经过期）：界面上还挂着 loading，但点取消不能没反应。
         // 先把过期的 loading 撤掉，再让 Host 按路径取消它那边可能仍在跑的任务。
         STARTING.delete(key)
+        OPEN_WHEN_READY.delete(key)
         notifyDownloads()
         void call('download/cancel', { id: activePeer, path }).catch(() => {})
         // 不弹提示：取消是这一格自己点的，状态回到「下载」已经说明结果。
@@ -2214,6 +2257,7 @@ const markdownLabels = {
       const doCancelDownload = useCallback((file) => {
         const key = transferKeyOf(activePeer, peerAbsoluteOf(file))
         STARTING.delete(key)
+        OPEN_WHEN_READY.delete(key)
         const job = LIVE_DOWNLOADS.get(key)
         LIVE_DOWNLOADS.delete(key)
         // 刚取消的任务 Host 可能还报一两轮，先压住，别让卡片闪回来。
