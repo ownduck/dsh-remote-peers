@@ -1117,6 +1117,8 @@ const markdownLabels = {
         try {
           const value = await call('file/sizes', { id: peer, paths, sessionId: openSession ?? '' })
           const sizes = value?.sizes ?? {}
+          // 对端明确回「文件已不在」的路径：记成 'missing'，卡片据此不再发起下载。
+          const missing = value?.missing ?? {}
           // Host 还是旧版本时没有 `locals`：退回一张卡一次 `local/copy`（只探这几张视口内的，代价很小），
           // 这样「插件没重载」也不会出现「文件明明在、按钮却还写下载」。
           const locals = value?.locals ?? await probeLocalCopies(peer, batch)
@@ -1135,8 +1137,9 @@ const markdownLabels = {
             for (const [key, path] of batch) {
               if (next[key] !== undefined) continue
               const size = sizes[path]
+              // `missing` = 对端说出「没有这个文件」：卡片据此直接提示不存在，不再尝试下载。
               // `null` = 这一项对端答不上来：记成 `error` 占位，免得滚回去又重问一遍。
-              const settled = typeof size === 'number' && size > 0 ? size : 'error'
+              const settled = missing[path] === true ? 'missing' : typeof size === 'number' && size > 0 ? size : 'error'
               if (next === previous) next = { ...previous }
               next[key] = settled
             }
@@ -2129,6 +2132,18 @@ const markdownLabels = {
         const key = transferKeyOf(activePeer, path)
         setTooltip(null)
         if (LIVE_DOWNLOADS.has(key) || STARTING.has(key)) return
+        // 大小那一批已经问出「对端没这个文件」：不再起任务，直接给一句结论。
+        if (fileSizes[key] === 'missing') {
+          notice('对端上没有这份文件（可能已被清理或移动）', false)
+          // 失效这次缓存：万一对端又长回同一个路径，下一次点击交给 Host 重新判定。
+          setFileSizes((previous) => {
+            if (previous[key] === undefined) return previous
+            const next = { ...previous }
+            delete next[key]
+            return next
+          })
+          return
+        }
         // 先进入 loading：Host 还要一次 stat、再起第一页，这段时间卡片转圈。
         const knownTotal = typeof fileSizes[key] === 'number' ? fileSizes[key] : 0
         STARTING.set(key, { key, path, total: knownTotal, startedAt: Date.now() })

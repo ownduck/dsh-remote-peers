@@ -189,8 +189,9 @@ export function apply(ctx, config = {}) {
           const source = typeof payload?.path === 'string' ? payload.path : ''
           if (!isAbsoluteFsPath(source)) return fail('remote-peers/bad-path', '需要绝对文件路径')
           const sessionId = typeof payload?.sessionId === 'string' ? payload.sessionId : ''
-          const size = await remoteSizeOf(peerEntry, source, sessionId, signal)
-          // TEMP-DIAG：Host 侧也留一行，确认跑的到底是哪条取大小路径（stat / 响应头 / 拿不到）。
+              const probe = await remoteProbeOf(peerEntry, source, sessionId, signal)
+              if (probe.missing === true) missing[source] = true
+              sizes[source] = typeof probe.size === 'number' && probe.size > 0 ? probe.size : null
           hostDiag(`size host ${source} session=${sessionId === '' ? '-' : sessionId} -> ${String(size ?? 'unknown')}`)
           if (size === undefined) return fail('remote-peers/size-unknown', '对端没有给出文件大小')
           return ok({ size })
@@ -206,9 +207,10 @@ export function apply(ctx, config = {}) {
           const paths = wanted
             .filter((item) => typeof item === 'string' && item !== '' && !item.includes('\0') && isAbsoluteFsPath(item))
             .slice(0, 200)
-          if (paths.length === 0) return ok({ sizes: {}, locals: {} })
+          if (paths.length === 0) return ok({ sizes: {}, locals: {}, missing: {} })
           const sizes = {}
           const locals = {}
+          const missing = {}
           await runPool(paths, 4, async (source) => {
             // 「本机是否已有副本」是纯本地 stat，顺路带回给前端，卡片据此显示「已下载」。
             locals[source] = hasLocalCopy(localCopyPathOf(peerEntry.id, source))
@@ -221,7 +223,7 @@ export function apply(ctx, config = {}) {
             }
           })
           hostDiag(`size batch ${paths.length} -> ${paths.filter((item) => typeof sizes[item] === 'number').length} hit, ${paths.filter((item) => locals[item] === true).length} local`)
-          return ok({ sizes, locals })
+          return ok({ sizes, locals, missing })
         }
         case 'open-local':
           return ok(await openLocal(payload, signal))
@@ -264,6 +266,11 @@ export function apply(ctx, config = {}) {
             return fail('remote-peers/bad-path', '需要绝对文件路径')
           }
           const sessionId = typeof payload?.sessionId === 'string' ? payload.sessionId : ''
+          // 点下载先确认这份文件还在：对端已清理掉就直接回「不存在」，不建任务、不进 loading。
+          const localPath = localCopyPathOf(peerEntry.id, source)
+          if (!hasLocalCopy(localPath) && (await remoteProbeOf(peerEntry, source, sessionId, signal)).missing === true) {
+            return fail('remote-peers/file-missing', '对端上没有这份文件（可能已被清理或移动）')
+          }
           const started = startCopy(peerEntry, source, sessionId, '下载')
           return ok({
             key: started.key,
@@ -480,6 +487,16 @@ export function apply(ctx, config = {}) {
    * 有 `v` 取版本串第三段（`<inode>:<…>:<size>:…`），否则用 `content-length`。
    */
   async function remoteSizeOf(peerEntry, source, sessionId, signal) {
+    const probe = await remoteProbeOf(peerEntry, source, sessionId, signal)
+    return probe.size
+  }
+
+  /**
+   * 对端这份文件的「大小 / 是否已经不在了」。只有 `workspaceFiles/stat` 或 `/api/file`
+   * 明确回 not-found / 404 才判 missing，超时、旧版本端点缺失一律不下结论（免得误伤可下载的文件）。
+   * @returns `{ size?: number, missing?: true }`
+   */
+  async function remoteProbeOf(peerEntry, source, sessionId, signal) {
     if (typeof sessionId === 'string' && sessionId !== '') {
       const statUrl = upstreamUrl(peerEntry, '/api/workspaceFiles/stat')
       const stat = await fetch(statUrl, {
@@ -495,22 +512,26 @@ export function apply(ctx, config = {}) {
       })
       if (stat.ok) {
         const body = await stat.json().catch(() => undefined)
-        const value = body?.result?.value
-        if (body?.result?.ok === true && typeof value?.bytes === 'number' && value.bytes > 0) return value.bytes
+        const result = body?.result
+        if (String(result?.error?.code ?? '').includes('not-found')) return { missing: true }
+        const value = result?.value
+        if (result?.ok === true && typeof value?.bytes === 'number' && value.bytes > 0) return { size: value.bytes }
+        // stat 成功但没有字节数（0 字节/目录）：交给 /api/file 兜底，别在这里猜。
       }
     }
     const upstream = upstreamUrl(peerEntry, '/api/file')
     upstream.searchParams.set('path', source)
     const response = await fetch(upstream, { headers: peerHeaders(peerEntry), redirect: 'manual', signal })
     await response.body?.cancel().catch(() => {})
+    if (response.status === 404) return { missing: true }
     const token = /[?&]v=([^&]+)/u.exec(response.headers.get('location') ?? '')
     if (token !== null) {
       const fields = decodeURIComponent(token[1]).split(':')
       const size = Number(fields[2] ?? Number.NaN)
-      if (Number.isFinite(size) && size > 0) return size
+      if (Number.isFinite(size) && size > 0) return { size }
     }
     const length = Number(response.headers.get('content-length') ?? Number.NaN)
-    return Number.isFinite(length) && length > 0 ? length : undefined
+    return Number.isFinite(length) && length > 0 ? { size: length } : {}
   }
 
   /** 原名做目录里的文件名：去掉 Windows 不允许的字符，保留中文。 */
