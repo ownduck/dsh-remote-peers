@@ -1630,6 +1630,9 @@ const markdownLabels = {
       const openRemoteSession = useCallback(async (peerId, sessionId) => {
         setBusy('history')
         setOpenSession(sessionId)
+        /* 不依赖 openSession effect 这一条通道：打开会话时直接排聚焦（effect 会随状态变化再排一次）。 */
+        diagNote(`open session ${sessionId}`)
+        scheduleComposerFocus('open')
         setLiveText('')
         setPickerOpen(false)
         setSelection(null)
@@ -5919,20 +5922,17 @@ const markdownLabels = {
         return () => { observer.disconnect(); cancelAnimationFrame(frame); clearTimeout(timer); clearTimeout(lateTimer) }
       }, [pendingCommand, openSession, promptText, chipLabelWidth])
 
-      /* 打开会话就把光标放进输入框（原生 InputBar 的 `[locked, sessionId, editor]` 效果：换会话即聚焦，
-         不看焦点原来在哪 —— 点会话行时焦点还留在侧栏那颗按钮上，所以这里不能再加「焦点不在 body 就跳过」的门槛）。
-         视图与快照分几步上屏，聚焦要补几拍；拿到就不再抢。 */
-      useEffect(() => {
-        if (openSession === null) return
+      /**
+       * 把光标放进输入框：原生 `InputBar` 换会话即无条件 `focusDraftEditor`（`[locked, sessionId, editor]`），
+       * 不看焦点原来在哪 —— 点会话行时焦点还留在侧栏那颗按钮上。
+       * 视图与快照分几步上屏，所以补几拍；拿到就不再抢。
+       */
+      function scheduleComposerFocus(reason) {
         const timers = []
         let done = false
-        const describe = (element) => element === null ? 'null' : `${element.tagName ?? '?'}${element.className === undefined || element.className === '' ? '' : `.${String(element.className).split(' ')[0]}`}`
-        const onFocusIn = (event) => {
-          const target = event.target
-          if (target === inputRef.current) return
-          diagNote(`composer focus stolen by ${describe(target instanceof Element ? target : null)}`)
-        }
-        document.addEventListener('focusin', onFocusIn, true)
+        const describe = (element) => element === null
+          ? 'null'
+          : `${element.tagName ?? '?'}${element.className === undefined || element.className === '' ? '' : `.${String(element.className).split(' ')[0]}`}`
         const attempt = () => {
           if (done) return
           const node = visibleComposerNode()
@@ -5943,13 +5943,26 @@ const markdownLabels = {
             node.setSelectionRange(node.value.length, node.value.length)
             done = document.activeElement === node
           }
-          diagNote(`composer focus ${done ? 'ok' : 'missed'} node=${describe(node)} active=${describe(document.activeElement instanceof Element ? document.activeElement : null)} doc=${document.hasFocus()}`)
+          diagNote(`composer focus ${reason} ${done ? 'ok' : 'missed'} node=${describe(node)} active=${describe(document.activeElement instanceof Element ? document.activeElement : null)} doc=${document.hasFocus()}`)
         }
         for (const delay of [0, 80, 240, 600, 1200]) timers.push(setTimeout(attempt, delay))
+        const onFocusIn = (event) => {
+          const target = event.target
+          if (target === inputRef.current) return
+          diagNote(`composer focus stolen by ${describe(target instanceof Element ? target : null)} after ${reason}`)
+        }
+        document.addEventListener('focusin', onFocusIn, true)
         return () => {
           for (const timer of timers) clearTimeout(timer)
           document.removeEventListener('focusin', onFocusIn, true)
         }
+      }
+
+      /* 切会话（openSession/节点变化）时排一次聚焦，与原生 `[locked, sessionId, editor]` 同义。 */
+      useEffect(() => {
+        if (openSession === null) return
+        diagNote(`composer effect ${openSession}`)
+        return scheduleComposerFocus('effect')
       }, [openSession, activePeer])
 
       /* 目录没取到过就补一次：权限 chip 只在拿到目录后才有档位可显示（原生同样依赖目录）。 */
