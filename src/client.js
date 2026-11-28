@@ -295,7 +295,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       /* 会话树行：hover 全部交给 CSS（原生就是 `:hover`）。行在指针底下被移除/插入时，浏览器会把 hover
          直接交给现在占位的行；用 React 的 hover 状态则收不到 mouseenter（鼠标没动），会出现「上面一行
          被归档后消失，下一行不亮而浮在里层的按钮还在」的错位。 */
-      '[data-rp-row]:hover, [data-rp-row][data-rp-open="true"] { background: var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.04)); }',
+      '[data-rp-row="session"]:hover, [data-rp-row="folder"][data-rp-open="true"] { background: var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.04)); }',
       '[data-rp-row] [data-rp-actions] { display: none; }',
       '[data-rp-row] [data-rp-resting] { display: inline-flex; }',
       '[data-rp-row]:hover [data-rp-actions], [data-rp-row][data-rp-open="true"] [data-rp-actions] { display: inline-flex; }',
@@ -451,7 +451,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
       /* 图标 SVG 的公共外形：16 视图框、lex:none、随文字色（50 处重复的 prop 对象收敛到这里） */
       iconBox: { viewBox: '0 0 16 16', style: { flex: 'none', display: 'block', color: 'inherit' } },
       /* 行本体：原生 `.projectRow`/`.sessionRow` —— 32px、0 8px、md 圆角、gap 6 */
-      sessionTreeRow: { display: 'flex', alignItems: 'center', gap: 6, boxSizing: 'border-box', width: '100%', height: 32, margin: 0, padding: '0 8px', border: 0, borderRadius: 'var(--dsw-radius-md, 8px)', background: 'transparent', color: 'inherit', font: 'inherit', textAlign: 'left', cursor: 'pointer' },
+      sessionTreeRow: { display: 'flex', alignItems: 'center', gap: 6, boxSizing: 'border-box', width: '100%', height: 32, margin: 0, padding: '0 8px', border: 0, borderRadius: 'var(--dsw-radius-md, 8px)', color: 'inherit', font: 'inherit', textAlign: 'left', cursor: 'pointer' },
       /* 前导槽：原生 `.slot` —— 16×20 居中，常态放文件夹图标，hover 换成实心三角（`.projectRow:hover` 的 folder/chevron 互换） */
       treeLeadSlot: { flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 16, height: 20, color: 'var(--dsw-alias-label-tertiary, #a6a9ae)' },
       sessionTreeLabel: { flex: '1 1 auto', minWidth: 0, overflow: 'hidden', fontSize: 14, lineHeight: '20px', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
@@ -3325,14 +3325,13 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
        * hover 外观（底色、动作列/常态列的互换、文件夹/三角的互换）全走 CSS 的 `:hover`，
        * 这里只挂 `data-rp-row`（及 `data-rp-open`）让样式表选中。
        */
-      function treeRowShell(key, depth, body, onClick, title, attrs) {
+      function treeRowShell(key, depth, body, onClick, title, attrs = {}) {
         return h('div', {
           key,
           role: 'button',
           tabIndex: 0,
           // 只留 aria-label：`title` 会冒出浏览器原生提示条，和行内按钮的自绘 tooltip 打架
           'aria-label': title,
-          'data-rp-row': '',
           ...attrs,
           style: { ...styles.sessionTreeRow, paddingLeft: 8 + depth * 16 },
           onClick,
@@ -3418,7 +3417,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
           ],
           () => setSessionTreeOpen((previous) => ({ ...previous, [key]: previous[key] === false })),
           label,
-          menuOpen ? { 'data-rp-open': 'true' } : undefined,
+          menuOpen ? { 'data-rp-row': 'folder', 'data-rp-open': 'true' } : { 'data-rp-row': 'folder' },
         )
       }
 
@@ -3468,6 +3467,7 @@ const LANGUAGE_BY_EXT = new Map(Object.entries({
           ],
           () => void openRemoteSession(activePeer, session.sessionId),
           `${sessionTitle(session)} · ${session.sessionId} · ${session.cwd ?? ''}`,
+          { 'data-rp-row': 'session' },
         )
       }
 
