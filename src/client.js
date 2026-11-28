@@ -2,7 +2,7 @@
 const react = require('react')
 import { SCROLL_SKIN, T, styles } from './theme.js'
 import { copyGlyph, checkGlyph, databaseGlyph, gaugeGlyph, contextGlyph, downloadGlyph, openInAppGlyph, folderGlyph, navFolderGlyph, caretDownGlyph, refreshGlyph, fullscreenGlyph, exitFullscreenGlyph, collapseGlyph, caretRightGlyph, triangleFillGlyph, renameGlyph, pinGlyph, newChatGlyph, searchGlyph, slidersGlyph, listGlyph, eyeOffGlyph, chatGlyph, archiveGlyph, backArrowGlyph, fileGlyph, closeGlyph, warningGlyph, retryGlyph, sendGlyph, spinnerGlyph, sendingGlyph, toBottomGlyph, plusGlyph } from './icons.js'
-import { diagNote, PdfPreview, ImagePreview, ExcelPreview, renderPreviewLoading, formatBytes, renderCsvBody, previewModeOf, extOf } from './preview.js'
+import { diagNote, codeLanguageOf, isImagePath, PdfPreview, ImagePreview, ExcelPreview, renderPreviewLoading, formatBytes, renderCsvBody, previewModeOf, extOf } from './preview.js'
 import { modelNameOf, permissionLabel, permissionOf, presetNameOf, selectionOf, metricsOf, effortOf, processToolLabelOf, processToolKind, processKindLabelOf, processToolSummary, oneLine, speedText, cacheHitText, formatTokens, formatExactTokens, formatDurationCompact } from './conversation.js'
 /** 第二层逐行左侧图标的原生 SVG 内联（ui-primitives artwork 的 1px regular 版，14px 显示）。 */
 const PROCESS_ROW_ICONS = {
@@ -569,6 +569,13 @@ const markdownLabels = {
                 failedKeysRef.current.add(localKey)
                 notice(`下载失败：${String(entry.failure ?? '未知错误')}`, false)
               }
+              // 失败多半是「对端已经没有这份文件」：撤回过期的「已下载」标记，这一格恢复成「下载」。
+              setLocalCopies((previous) => {
+                if (previous[localKey] !== true) return previous
+                const next = { ...previous }
+                delete next[localKey]
+                return next
+              })
               LIVE_DOWNLOADS.delete(localKey)
               continue
             }
@@ -4282,7 +4289,7 @@ const markdownLabels = {
             resolve: (value) => {
               // 原生 `localPathMediaUrl` 只认绝对路径（`isAbsoluteWorkspacePath`），相对路径仍是 alt。
               if (typeof value !== 'string' || !isAbsPath(value)) return undefined
-              return IMAGE_SUFFIXES.has(extOf(value)) ? ensureRemoteImage(value) : undefined
+              return isImagePath(value) ? ensureRemoteImage(value) : undefined
             },
           },
           fileMentions: {
@@ -5535,7 +5542,7 @@ const markdownLabels = {
                       if (!isAbsPath(value) && !/^\.{0,2}[\\/]/.test(value)) return undefined
                       const base = previewTab?.absolutePath ?? previewTab?.path ?? path
                       const target = isAbsPath(value) ? value : joinPathOf(dirNameOf(base), value.replace(/^\.+[\\/]/u, ''))
-                      return IMAGE_SUFFIXES.has(extOf(target)) ? ensureRemoteImage(target) : undefined
+                      return isImagePath(target) ? ensureRemoteImage(target) : undefined
                     },
                   },
                 })),
@@ -5544,7 +5551,7 @@ const markdownLabels = {
         if (mode === 'code') {
           // 主体 code 预览：按 `CODE_HIGHLIGHT_EXTENSIONS` 认语言后交给同一个高亮引擎。
           // 这里借原生 `MarkdownText` 的围栏代码块（同一套 highlight + 复制工具条）拿到一致观感。
-          const language = LANGUAGE_BY_EXT.get(extOf(path)) ?? ''
+          const language = codeLanguageOf(path)
           const source = previewState.text ?? ''
           const fenced = `\`\`\`${language}\n${source}\n\`\`\``
           return h('div', { style: { ...styles.previewScroller, padding: '12px 16px', whiteSpace: 'normal' } },

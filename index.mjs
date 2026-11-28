@@ -887,6 +887,7 @@ function peerPassRoute(path, upstreamPath, paramsOf, headersOf) {
         upstream.searchParams.set('path', source)
         upstream.searchParams.set('download', '1')
         const response = await fetch(upstream, { headers: peerHeaders(peerEntry), signal })
+        if (response.status === 404) throw new Error('对端上没有这份文件（可能已被清理或移动）')
         if (!response.ok) throw new Error(`对端返回 HTTP ${response.status}`)
         let written = 0
         await pipeline(Readable.fromWeb(response.body), async function* (chunks) {
@@ -1077,7 +1078,14 @@ function peerPassRoute(path, upstreamPath, paramsOf, headersOf) {
     })
     if (!response.ok) throw new Error(`upstream ${response.status}`)
     const boundary = /boundary=([^;]+)/u.exec(response.headers.get('content-type') ?? '')
-    if (boundary === null) return undefined
+    if (boundary === null) {
+      // 对端没给分区数据就是信封错误：`not-found` 说明文件已被清理，换成能读懂的文案。
+      const body = await response.json().catch(() => undefined)
+      const error = body?.result?.error
+      if (String(error?.code ?? '').includes('not-found')) throw new Error('对端上没有这份文件（可能已被清理或移动）')
+      if (typeof error?.message === 'string' && error.message !== '') throw new Error(error.message)
+      return undefined
+    }
     const buffer = Buffer.from(await response.arrayBuffer())
     return extractMultipartPart(buffer, boundary[1].trim().replace(/^"|"$/gu, ''))
   }

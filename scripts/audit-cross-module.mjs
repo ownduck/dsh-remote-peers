@@ -36,6 +36,29 @@ function importsOf(code) {
 }
 
 let failures = 0
+/** 去掉注释与字符串字面量：常量名守卫只看真代码里的标识符。 */
+function stripLiterals(code) {
+  return code
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/[^\n]*/g, '')
+    .replace(/'(?:\\.|[^'\\])*'/g, "''")
+    .replace(/"(?:\\.|[^"\\])*"/g, '""')
+    .replace(/`(?:\\.|[^`\\])*`/g, '``')
+}
+
+/** 文件里声明的顶层名字（含 import）。 */
+function declaredOf(code) {
+  const names = new Set(importsOf(code))
+  for (const match of code.matchAll(/(?:function|const|let|var|class)\s+([A-Za-z_$][\w$]*)/g)) names.add(match[1])
+  for (const match of code.matchAll(/export\s*\{([^}]*)\}/g)) {
+    for (const part of match[1].split(',')) {
+      const name = part.trim().split(/\s+as\s+/).pop()?.trim()
+      if (name !== undefined && name !== '') names.add(name)
+    }
+  }
+  return names
+}
+
 for (const file of files) {
   const code = readFileSync(join(root, file), 'utf8')
   const imported = importsOf(code)
@@ -50,6 +73,17 @@ for (const file of files) {
       console.log(`${file}: 用了 ${name}（来自 ${sibling}）但没 import`)
       failures += 1
     }
+  }
+  // 全大写常量：本文件没声明也没 import，却出现在代码里 —— 拆分模块时最常漏的一类（`LANGUAGE_BY_EXT`）。
+  const declared = declaredOf(code)
+  const identifiers = stripLiterals(body).match(/(?<![.\w$])[A-Z][A-Z0-9_]{2,}\b/g) ?? []
+  for (const name of new Set(identifiers)) {
+    if (declared.has(name)) continue
+    // 只报「本仓库另有同名声明」的：纯外来的全大写词（例如协议字面量）不算。
+    const known = files.some((other) => declaredOf(readFileSync(join(root, other), 'utf8')).has(name))
+    if (!known) continue
+    console.log(`${file}: 用了常量 ${name}，但本文件没声明也没 import`)
+    failures += 1
   }
 }
 console.log(failures === 0 ? '跨模块符号: 全部已 import' : `跨模块符号: ${failures} 处缺失`)

@@ -619,3 +619,13 @@ export function previewModeOf(path) {
   if (suffix === '' || TEXT_SUFFIXES.has(suffix)) return 'text'
   return 'binary'
 }
+
+/** 代码预览要的语法语言名：命中返回主体 `CODE_HIGHLIGHT_EXTENSIONS` 的键，否则空串。 */
+export function codeLanguageOf(path) {
+  return LANGUAGE_BY_EXT.get(extOf(path)) ?? ''
+}
+
+/** 图片后缀判定：Markdown 里的相对图片链接靠它认出「该按图片取字节」。 */
+export function isImagePath(path) {
+  return IMAGE_SUFFIXES.has(extOf(path))
+}
