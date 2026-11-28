@@ -654,10 +654,10 @@ scrollbarGutter: 'stable',
   attachThumbProgress: { position: 'absolute', left: 8, right: 8, bottom: 6, height: 2, overflow: 'hidden', borderRadius: 1, background: 'var(--dsw-specific-file-upload-track, #ececec)', pointerEvents: 'none' },
   attachProgressBar: { display: 'block', width: '35%', height: '100%', borderRadius: 'inherit', background: 'var(--dsw-alias-brand-primary, #3964FE)', animation: 'dsh-rp-upload 1.2s ease-in-out infinite alternate' },
   /* 认领的命令 chip：原生 `.reference`（inline 原子、2px 4px 内距、sm 圆角、business 主色、
-     hover 铺 business-tertiary 底色）。这里额外常驻一格 X 位，hover 时淡入。 */
-  commandToken: { position: 'absolute', left: 0, top: 0, boxSizing: 'border-box', display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 6px 0 10px', borderRadius: 'var(--dsw-radius-sm, 4px)', fontSize: 14, fontWeight: 500, color: 'var(--dsw-alias-state-business-primary, #3964FE)', lineHeight: '24px', whiteSpace: 'nowrap', cursor: 'default' },
-  /* chip 里的取消钮：占位 15×15，hover 前不可见、不可点。 */
-  commandCancel: { flex: 'none', display: 'inline-grid', placeItems: 'center', width: 15, height: 15, padding: 0, border: 'none', borderRadius: '50%', cornerShape: 'round', background: 'transparent', color: 'inherit', cursor: 'pointer' },
+     hover 铺 business-tertiary 底色）。高度取整行盒 24、文字垂直居中；X 槽只在 hover 时才占宽。 */
+  commandToken: { position: 'absolute', left: 10, top: 4, boxSizing: 'border-box', display: 'inline-flex', alignItems: 'center', gap: 2, height: 24, padding: '0 4px', borderRadius: 'var(--dsw-radius-sm, 4px)', fontSize: 14, fontWeight: 500, color: 'var(--dsw-alias-state-business-primary, #3964FE)', lineHeight: '24px', whiteSpace: 'nowrap', cursor: 'default' },
+  /* chip 里的取消钮：hover 前不可见、不可点；只占 13×13。 */
+  commandCancel: { flex: 'none', display: 'inline-grid', placeItems: 'center', width: 13, height: 13, padding: 0, border: 'none', borderRadius: '50%', cornerShape: 'round', background: 'transparent', color: 'inherit', cursor: 'pointer' },
   commandRow: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, opacity: 0.8 },
   commandCaret: { opacity: 0.45, fontFamily: 'ui-monospace, Menlo, monospace' },
   commandName: { fontWeight: 600, opacity: 0.7 },

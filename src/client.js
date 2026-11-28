@@ -767,6 +767,8 @@ const markdownLabels = {
       const turnStartsRef = useRef(new Map())
       /** 「+」添加菜单：文件 / 目标 / 计划 / 压缩 / 下载日志。 */
       const [plusOpen, setPlusOpen] = useState(false)
+      /** chip 是否被 hover：hover 才让出 X 的宽度（原生 chip 本身只有标签那么宽）。 */
+      const [commandChipHover, setCommandChipHover] = useState(false)
       /** 待插入的指令（目标、计划）按会话分开存：原生 claim 属于该会话的草稿，切会话各看各的。 */
       const [pendingCommandBySession, setPendingCommandBySession] = useState({})
       const pendingCommand = pendingCommandBySession[`${activePeer}:${openSession}`] ?? null
@@ -783,7 +785,10 @@ const markdownLabels = {
           return { ...previous, [key]: value }
         })
       }
-      function setPendingCommand(value) { setPendingCommandFor(activePeer, openSession, value) }
+      function setPendingCommand(value) {
+        setCommandChipHover(false)
+        setPendingCommandFor(activePeer, openSession, value)
+      }
       /** 待发附件：图片是缩略图草稿（原生 image draft），其余是文件卡 —— 选中即开始跨端上传。 */
       const [pendingFiles, setPendingFiles] = useState([])
       /** 导出开始的提示弹窗。 */
@@ -6001,10 +6006,17 @@ const markdownLabels = {
             pendingCommand === null
               ? h('textarea', inputProps(styles.composerInput, '发消息或创建任务'))
               : (() => {
-                  /* chip 口径：左内距 10 + 标签 + 4 间距 + X 槽 15 + 右内距 6；正文首行从 chip 右侧 +4 起。 */
-                  const chipWidth = pendingCommand.label.length * 14 + 35
+                  /* chip 口径：左起 10、内距 4、标签、内距 4；hover 时再让出 2 + X 13。
+                     正文首行从 chip 右边缘 +4 起（原生内联原子），所以缩进 = chip 宽度。 */
+                  const chipWidth = pendingCommand.label.length * 14 + (commandChipHover ? 23 : 8)
                   return h('div', { style: { position: 'relative', width: '100%', minWidth: 0 } },
-                    h('span', { 'data-rp-command-chip': '', style: { ...styles.commandToken, width: `${chipWidth}px` }, onClick: () => inputRef.current?.focus() },
+                    h('span', {
+                      'data-rp-command-chip': '',
+                      style: { ...styles.commandToken, width: `${chipWidth}px` },
+                      onClick: () => inputRef.current?.focus(),
+                      onMouseEnter: () => setCommandChipHover(true),
+                      onMouseLeave: () => setCommandChipHover(false),
+                    },
                       pendingCommand.label,
                       /* hover 才淡入的取消钮：撤掉 chip，正文原位不动（不插空格、不留缩进）。 */
                       h('button', {
@@ -6019,13 +6031,13 @@ const markdownLabels = {
                     promptText === ''
                       ? h('span', {
                           'aria-hidden': 'true',
-                          style: { ...styles.commandHint, paddingLeft: `${chipWidth + 4}px` },
+                          style: { ...styles.commandHint, paddingLeft: `${chipWidth + 14}px` },
                         }, pendingCommand.hint)
                       : null,
                     /* 原生 chip 是正文里的一个内联原子：首行从 chip 右侧起，折行回到正文左边缘。
                        这里用 text-indent 表达同一件事（首行缩进 = chip 占位，后续行不缩进）。 */
                     h('textarea', inputProps(
-                      { ...styles.composerInput, width: '100%', textIndent: `${chipWidth - 10}px` },
+                      { ...styles.composerInput, width: '100%', textIndent: `${chipWidth}px` },
                       '',
                     )),
                   )
