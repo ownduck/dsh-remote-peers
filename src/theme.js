@@ -176,7 +176,9 @@ export const styles = {
   // ── 会话页（照原生版式：通栏正文 + 右侧用户气泡 + 药丸输入框） ──
   conversationPage: { position: 'relative', display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 },
   /** 会话页里的失败提示：原生用 toast 报告「打开失败」，这里贴底居中一条，不挡正文。 */
-  openErrorToast: { position: 'absolute', zIndex: 6, left: '50%', bottom: 140, transform: 'translateX(-50%)', maxWidth: 'min(520px, 84%)', padding: '8px 14px', borderRadius: 10, background: 'var(--dsw-alias-toast-bg, rgba(32,34,38,0.92))', color: 'var(--dsw-alias-label-on-color, #fff)', fontSize: 13, lineHeight: '20px', boxShadow: '0 4px 16px rgba(0,0,0,0.18)', pointerEvents: 'none' },
+  /* 提示条：层级要压过会话列里的浮层（沉底圆钮 z9、轮次竖轨 z7），否则会被圆钮盖住一段； */
+  /* 仍低于浮层菜单/工具提示（100~240），不跟它们抢。 */
+  openErrorToast: { position: 'absolute', zIndex: 120, left: '50%', bottom: 140, transform: 'translateX(-50%)', maxWidth: 'min(520px, 84%)', padding: '8px 14px', borderRadius: 10, background: 'var(--dsw-alias-toast-bg, rgba(32,34,38,0.92))', color: 'var(--dsw-alias-label-on-color, #fff)', fontSize: 13, lineHeight: '20px', boxShadow: '0 4px 16px rgba(0,0,0,0.18)', pointerEvents: 'none' },
   /* 头部整块：标题行 30px + 页签行 25px（margin-top 10），底边 0.5px l3 —— ConversationRoot `.header` */
   headerBlock: { flex: 'none', boxSizing: 'border-box', borderBottom: '0.5px solid var(--dsw-alias-border-l3, #e3e4e6)', background: 'var(--dsw-alias-bg-base, transparent)' },
   convHeader: { display: 'flex', alignItems: 'center', gap: 8, minHeight: 30, padding: '10px 28px 0 20px' },
