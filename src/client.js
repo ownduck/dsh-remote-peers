@@ -20,7 +20,7 @@ const PROCESS_ROW_ICONS = {
   context: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke-width="1"><path d="M5 2.5H3.5C3.23478 2.5 2.98043 2.60536 2.79289 2.79289C2.60536 2.98043 2.5 3.23478 2.5 3.5V13.5C2.5 13.7652 2.60536 14.0196 2.79289 14.2071C2.98043 14.3946 3.23478 14.5 3.5 14.5H12.5C12.7652 14.5 13.0196 14.3946 13.2071 14.2071C13.3946 14.0196 13.5 13.7652 13.5 13.5V3.5C13.5 3.23478 13.3946 2.98043 13.2071 2.79289C13.0196 2.60536 12.7652 2.5 12.5 2.5H11" stroke="currentColor"></path><path d="M8 0.5V7.5" stroke="currentColor"></path><path d="M5.5 5L8 7.5L10.5 5" stroke="currentColor"></path><path d="M5.5 11H10.5" stroke="currentColor"></path></svg>',
 }
     const h = react.createElement
-    const { useState, useEffect, useCallback, useRef } = react
+    const { useState, useEffect, useLayoutEffect, useCallback, useRef } = react
 
     /**
      * 下载任务放在模块级：Host 一旦认领这条下载，前端重启多少次都只是「重新贴上去看进度」，
@@ -769,6 +769,8 @@ const markdownLabels = {
       const [plusOpen, setPlusOpen] = useState(false)
       /** 待插入的指令（目标、计划）按会话分开存：原生 claim 属于该会话的草稿，切会话各看各的。 */
       const [pendingCommandBySession, setPendingCommandBySession] = useState({})
+      /** 草稿在输入框里滚上去了吗：chip 与幽灵提示属于首行，滚动后一起隐藏。 */
+      const [chipScrolled, setChipScrolled] = useState(false)
       const pendingCommand = pendingCommandBySession[`${activePeer}:${openSession}`] ?? null
       /** 写入某个会话的 claim；不传 session 就写当前会话（发送/取消只动自己那条）。 */
       function setPendingCommandFor(peerId, sessionId, value) {
@@ -5846,11 +5848,24 @@ const markdownLabels = {
         element.style.height = `${Math.min(element.scrollHeight, 336)}px`
       }
 
-      /* 认领/取消 chip 会换掉 textarea 节点（新节点高度回到 min-height，草稿被裁在一行半里），
-         所以每次 chip 或会话变化后按当前内容重新量一次高度。 */
-      useEffect(() => {
-        if (inputRef.current !== null) growComposer(inputRef.current)
-      }, [pendingCommand, openSession])
+      /* 认领/取消 chip 会换掉 textarea 节点，新节点高度回到 min-height，草稿被裁在一行半里。
+         所以在提交前（layout 阶段）就按当前内容量高，并盯住宽度变化（窗口缩放、附件行、
+         chip 宽度变化都会改可用宽度，需要重新折行量高）。 */
+      useLayoutEffect(() => {
+        const node = inputRef.current
+        if (node === null) return
+        growComposer(node)
+        if (node.scrollTop === 0) setChipScrolled(false)
+        if (typeof ResizeObserver === 'undefined') return
+        let width = node.clientWidth
+        const observer = new ResizeObserver(() => {
+          if (node.clientWidth === width) return
+          width = node.clientWidth
+          growComposer(node)
+        })
+        observer.observe(node)
+        return () => observer.disconnect()
+      }, [pendingCommand, openSession, promptText])
 
       /**
        * 待发附件 —— 图片在原生 `ComposerAttachments.rail` 里是 64×64 缩略图；
@@ -6006,43 +6021,52 @@ const markdownLabels = {
           h('div', { style: { ...styles.composerPill, maxWidth: cardWidth, '--dsw-elevation-stroke-color': 'var(--dsw-alias-border-l2, #e3e4e6)' } },
             h('div', { style: styles.overlayAnchor }, plusOpen ? renderPlusMenu() : null),
             renderStagedAttachments(),
-            pendingCommand === null
-              ? h('textarea', inputProps(styles.composerInput, '发消息或创建任务'))
-              : (() => {
-                  /* chip 口径固定：左内距 4 + 标签 + 2 + X 槽 13 + 右内距 3（宽度不随 hover 变，避免弹跳）。
-                     正文首行从 chip 右边缘 +4 起（原生内联原子），所以缩进 = chip 宽度。 */
-                  const chipWidth = pendingCommand.label.length * 14 + 22
-                  return h('div', { style: { position: 'relative', width: '100%', minWidth: 0 } },
-                    h('span', {
+            /* textarea 的节点位置在两种模式下保持不变（原生也是同一个编辑器，chip 只是里面的一个装饰），
+               否则切模式会重挂节点、丢掉已量好的高度和滚动位置。 */
+            (() => {
+              /* chip 口径固定：左内距 4 + 标签 + 2 + X 槽 13 + 右内距 3（宽度不随 hover 变，避免弹跳）。
+                 正文首行从 chip 右边缘 +4 起（原生内联原子），所以缩进 = chip 宽度。 */
+              const chipWidth = pendingCommand === null ? 0 : pendingCommand.label.length * 14 + 22
+              /* chip 与幽灵提示属于首行：内容滚上去后它们跟着看不见（原生内联原子被裁掉的效果）。 */
+              const lineHidden = chipScrolled ? 'hidden' : undefined
+              return h('div', { style: { position: 'relative', width: '100%', minWidth: 0 } },
+                pendingCommand === null
+                  ? null
+                  : h('span', {
                       'data-rp-command-chip': '',
-                      style: { ...styles.commandToken, width: `${chipWidth}px` },
+                      style: { ...styles.commandToken, width: `${chipWidth}px`, visibility: lineHidden },
                       onClick: () => inputRef.current?.focus(),
                     },
-                      pendingCommand.label,
-                      /* hover 才淡入的取消钮：撤掉 chip，正文原位不动（不插空格、不留缩进）。 */
-                      h('button', {
-                        'data-rp-command-cancel': '',
-                        style: styles.commandCancel,
-                        'aria-label': '取消该模式',
-                        onClick: cancelPendingCommand,
-                      }, closeGlyph(10)),
-                    ),
-                    /* 与原生一致：认领后的提示是 chip 之后的幽灵文本（`p::after`），空草稿才显示；
-                       textarea 的 placeholder 会折行后被单行高度裁掉。 */
-                    promptText === ''
-                      ? h('span', {
-                          'aria-hidden': 'true',
-                          style: { ...styles.commandHint, paddingLeft: `${chipWidth + 14}px` },
-                        }, pendingCommand.hint)
-                      : null,
-                    /* 原生 chip 是正文里的一个内联原子：首行从 chip 右侧起，折行回到正文左边缘。
-                       这里用 text-indent 表达同一件事（首行缩进 = chip 占位，后续行不缩进）。 */
-                    h('textarea', inputProps(
-                      { ...styles.composerInput, width: '100%', textIndent: `${chipWidth}px` },
-                      '',
-                    )),
-                  )
-                })(),
+                    pendingCommand.label,
+                    /* hover 才淡入的取消钮：撤掉 chip，正文原位不动（不插空格、不留缩进）。 */
+                    h('button', {
+                      'data-rp-command-cancel': '',
+                      style: styles.commandCancel,
+                      'aria-label': '取消该模式',
+                      onClick: cancelPendingCommand,
+                    }, closeGlyph(10)),
+                  ),
+                /* 与原生一致：认领后的提示是 chip 之后的幽灵文本（`p::after`），空草稿才显示；
+                   textarea 的 placeholder 会折行后被单行高度裁掉。 */
+                pendingCommand === null || promptText !== ''
+                  ? null
+                  : h('span', {
+                      'aria-hidden': 'true',
+                      style: { ...styles.commandHint, paddingLeft: `${chipWidth + 14}px`, visibility: lineHidden },
+                    }, pendingCommand.hint),
+                /* 原生 chip 是正文里的一个内联原子：首行从 chip 右侧起，折行回到正文左边缘。
+                   这里用 text-indent 表达同一件事（首行缩进 = chip 占位，后续行不缩进）。 */
+                h('textarea', {
+                  ...inputProps(
+                    pendingCommand === null
+                      ? { ...styles.composerInput, width: '100%' }
+                      : { ...styles.composerInput, width: '100%', textIndent: `${chipWidth}px` },
+                    pendingCommand === null ? '发消息或创建任务' : '',
+                  ),
+                  onScroll: (event) => setChipScrolled(event.currentTarget.scrollTop > 0),
+                }),
+              )
+            })(),
             h('div', { style: styles.composerRow },
               h('div', { style: { position: 'relative' } },
                 h('button', {
