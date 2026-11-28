@@ -709,6 +709,34 @@ const markdownLabels = {
       const followRef = useRef(true)
       /** 最近一次内容变高的时刻（ms）：用来区分「内容长高把滚动位置挤走」和「用户自己上翻」。 */
       const growAtRef = useRef(0)
+      /** 上一次 scroll 事件的 scrollTop，用来判断这次位移是往上还是往下。 */
+      const lastScrollTopRef = useRef(0)
+      /** 用户主动上翻的判据：滚轮上滑 / 触摸 / 上翻键 / 按住拖动的时间戳，只有它们才关闭跟随。 */
+      const gestureAtRef = useRef(0)
+      const draggingRef = useRef(false)
+      useEffect(() => {
+        const body = bodyRef.current
+        if (body === null) return
+        const mark = () => { gestureAtRef.current = Date.now() }
+        const onWheel = (event) => { if (event.deltaY < 0) mark() }
+        const onKey = (event) => {
+          if (event.key === 'ArrowUp' || event.key === 'PageUp' || event.key === 'Home') mark()
+        }
+        const onDown = () => { draggingRef.current = true; mark() }
+        const onUp = () => { draggingRef.current = false }
+        body.addEventListener('wheel', onWheel, { passive: true })
+        body.addEventListener('touchmove', mark, { passive: true })
+        body.addEventListener('keydown', onKey)
+        body.addEventListener('pointerdown', onDown)
+        window.addEventListener('pointerup', onUp)
+        return () => {
+          body.removeEventListener('wheel', onWheel)
+          body.removeEventListener('touchmove', mark)
+          body.removeEventListener('keydown', onKey)
+          body.removeEventListener('pointerdown', onDown)
+          window.removeEventListener('pointerup', onUp)
+        }
+      }, [openSession])
       /**
        * 跟随尾部时，内容一变高就把滚动条压回最底：宿主 Markdown 延迟排版、图片载入、
        * 过程行收起展开都会在 rAF 之后才改变高度，只在消息变化时补一次 rAF 跟不上。
@@ -724,7 +752,7 @@ const markdownLabels = {
         })
         observer.observe(column)
         return () => { observer.disconnect() }
-      }, [])
+      }, [openSession])
       const [showToBottom, setShowToBottom] = useState(false)
       const [toBottomHover, setToBottomHover] = useState(false)
       /** turn → present 文件清单，实时流里凑到 turn/end 才落卡片。 */
@@ -6293,13 +6321,25 @@ const markdownLabels = {
         setRailPreview(null)
         const distance = element.scrollHeight - element.scrollTop - element.clientHeight
         const following = distance < 40
-        // 内容刚长高时浏览器滚动锚定会挪 scrollTop，这不算用户上翻：补一次沉底，别把跟随关掉。
-        if (!following && followRef.current && Date.now() - growAtRef.current < 400) {
+        const movedUp = element.scrollTop < lastScrollTopRef.current - 2
+        lastScrollTopRef.current = element.scrollTop
+        // 只有用户自己往上滚/拖/按键造成的上移才算「离开尾部」；内容长高（浏览器锚定把 scrollTop 挤走）
+        // 一律不算，保持跟随并补一次沉底 —— 否则每次流式结尾都会把 tail -f 弄丢。
+        const byUser = draggingRef.current || Date.now() - gestureAtRef.current < 600
+        if (following) {
+          followRef.current = true
+          setShowToBottom(false)
+        } else if (movedUp && byUser) {
+          followRef.current = false
+          setShowToBottom(true)
+        } else if (followRef.current) {
           element.scrollTop = element.scrollHeight
+          lastScrollTopRef.current = element.scrollTop
           setShowToBottom(false)
           return
+        } else {
+          setShowToBottom(true)
         }
-        followRef.current = following
         setShowToBottom(!following)
         // 逼近窗口顶部就向前翻一页（原生 scroll-to-top 自动 prepend）。
         if (element.scrollTop < 120) void loadOlderHistory(activePeer, openSession)
