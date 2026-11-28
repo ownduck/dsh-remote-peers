@@ -1631,8 +1631,7 @@ const markdownLabels = {
         setBusy('history')
         setOpenSession(sessionId)
         /* 不依赖 openSession effect 这一条通道：打开会话时直接排聚焦（effect 会随状态变化再排一次）。 */
-        diagNote(`open session ${sessionId}`)
-        scheduleComposerFocus('open')
+        scheduleComposerFocus()
         setLiveText('')
         setPickerOpen(false)
         setSelection(null)
@@ -5927,42 +5926,27 @@ const markdownLabels = {
        * 不看焦点原来在哪 —— 点会话行时焦点还留在侧栏那颗按钮上。
        * 视图与快照分几步上屏，所以补几拍；拿到就不再抢。
        */
-      function scheduleComposerFocus(reason) {
+      function scheduleComposerFocus() {
         const timers = []
         let done = false
-        const describe = (element) => element === null
-          ? 'null'
-          : `${element.tagName ?? '?'}${element.className === undefined || element.className === '' ? '' : `.${String(element.className).split(' ')[0]}`}`
         const attempt = () => {
           if (done) return
           const node = visibleComposerNode()
+          if (node === null) return
           /* 草稿是切回来才灌进来的：聚焦前先按内容重量一次，别带着上一次的高度露出。 */
-          if (node !== null) {
-            growComposer(node)
-            node.focus({ preventScroll: true })
-            node.setSelectionRange(node.value.length, node.value.length)
-            done = document.activeElement === node
-          }
-          diagNote(`composer focus ${reason} ${done ? 'ok' : 'missed'} node=${describe(node)} active=${describe(document.activeElement instanceof Element ? document.activeElement : null)} doc=${document.hasFocus()}`)
+          growComposer(node)
+          node.focus({ preventScroll: true })
+          node.setSelectionRange(node.value.length, node.value.length)
+          done = document.activeElement === node
         }
         for (const delay of [0, 80, 240, 600, 1200]) timers.push(setTimeout(attempt, delay))
-        const onFocusIn = (event) => {
-          const target = event.target
-          if (target === inputRef.current) return
-          diagNote(`composer focus stolen by ${describe(target instanceof Element ? target : null)} after ${reason}`)
-        }
-        document.addEventListener('focusin', onFocusIn, true)
-        return () => {
-          for (const timer of timers) clearTimeout(timer)
-          document.removeEventListener('focusin', onFocusIn, true)
-        }
+        return () => { for (const timer of timers) clearTimeout(timer) }
       }
 
       /* 切会话（openSession/节点变化）时排一次聚焦，与原生 `[locked, sessionId, editor]` 同义。 */
       useEffect(() => {
-        diagNote(`composer effect open=${openSession === null ? 'null' : openSession} peer=${activePeer}`)
         if (openSession === null) return
-        return scheduleComposerFocus('effect')
+        return scheduleComposerFocus()
       }, [openSession, activePeer])
 
       /* 目录没取到过就补一次：权限 chip 只在拿到目录后才有档位可显示（原生同样依赖目录）。 */
@@ -7409,8 +7393,6 @@ const markdownLabels = {
     /** Client 插件入口：管理面板 + 每个他端一条左栏入口。 */
     function apply(ctx) {
       ensureScrollSkin()
-      /* 客户端 bundle 版本标记：diag.log 里能看出浏览器实际加载的是哪一版。 */
-      diagNote('client bundle r134')
       const api = {
         async call(endpoint, payload) {
           const connection = ctx.get('connection')
